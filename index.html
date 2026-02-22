@@ -2016,8 +2016,8 @@ function VCustomers({customers, setCustomers, sales, stores, session, activeStor
   const sym = getSym(session.currency);
 
   function save(d){
-    setModal(null); // close immediately
-    setCu(cc=>d.id?cc.map(c=>c.id===d.id?d:c):[...cc,{...d,id:uid(),storeId:activeStore,createdAt:Date.now()}]);
+    setModal(null);
+    setCustomers(cc=>d.id?cc.map(c=>c.id===d.id?d:c):[...cc,{...d,id:uid(),storeId:activeStore,createdAt:Date.now()}]);
   }
   function del(id){if(!confirm('Delete customer?'))return;setCustomers(cc=>cc.filter(c=>c.id!==id));}
 
@@ -2213,7 +2213,7 @@ function CustomerModal({data, onSave, onClose}){
         </div>
         <div className="modal-foot">
           <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={()=>{if(f.name.trim()&&!saving){setSaving(true);onSave(f);}}} disabled={!f.name.trim()}>Save Customer</button>
+          <button className="btn" onClick={()=>{if(f.name.trim())onSave(f);}} disabled={!f.name.trim()}>Save Customer</button>
         </div>
       </div>
     </div>
