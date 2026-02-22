@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#0a0a0f"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="StorePOS"/>
+<meta name="description" content="StorePOS — Multi-store inventory and sales management system."/>
+<title>StorePOS — Inventory & Sales Manager</title>
+<link rel="apple-touch-icon" id="apple-icon"/>
+<link rel="icon" id="favicon-icon"/>
+<link rel="manifest" id="pwa-manifest"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;
+  --accent:#f97316;--accent2:#ea580c;--accent3:#fb923c;
+  --blue:#6366f1;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;
+  --text:#f1f0ee;--text2:#9998a8;--text3:#48475a;
+  --border:#1e1e2e;--border2:#16161f;
+  --fm:'Syne',sans-serif;--fd:'JetBrains Mono',monospace;
+  --nh:62px;--radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html{-webkit-text-size-adjust:100%;}
+body{background:var(--bg);color:var(--text);font-family:var(--fm);min-height:100vh;overflow-x:hidden;font-size:15px;}
+input,select,button,textarea{font-family:var(--fm);}
+.app{display:flex;height:100vh;height:100dvh;overflow:hidden;}
+.sidebar{width:224px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.content{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:50px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;gap:10px;}
+
+/* Sidebar */
+.sb-logo{padding:20px 16px 16px;border-bottom:1px solid var(--border);}
+.sb-logo-main{font-size:17px;font-weight:800;color:var(--accent);letter-spacing:-0.5px;}
+.sb-logo-sub{font-size:9px;letter-spacing:3px;color:var(--text3);margin-top:3px;text-transform:uppercase;}
+.sb-nav{padding:8px;}
+.sb-sec{font-size:8px;letter-spacing:3px;color:var(--text3);padding:12px 10px 4px;text-transform:uppercase;}
+.sb-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);transition:all .15s;border:none;background:none;width:100%;text-align:left;}
+.sb-item:hover{background:var(--bg3);color:var(--text);}
+.sb-item.active{background:#f9731618;color:var(--accent);}
+.dev-pill{font-size:7px;background:var(--accent);color:#0a0a0f;padding:2px 5px;border-radius:3px;font-weight:800;letter-spacing:1px;margin-left:auto;}
+
+/* Bottom nav */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--border);z-index:50;padding-bottom:env(safe-area-inset-bottom,0px);}
+.bn-inner{display:flex;height:var(--nh);}
+.bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--text3);font-size:8px;letter-spacing:1px;text-transform:uppercase;border:none;background:none;font-family:var(--fm);font-weight:600;min-height:44px;touch-action:manipulation;}
+.bn-item.active{color:var(--accent);}
+
+/* Cards */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.sec-title{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;}
+
+/* Stats */
+.stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;position:relative;overflow:hidden;}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent);opacity:.4;}
+.stat-label{font-size:9px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;margin-bottom:6px;font-weight:700;}
+.stat-val{font-family:var(--fd);font-size:20px;font-weight:600;}
+.stat-sub{font-size:10px;color:var(--text3);margin-top:3px;}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--accent);color:#0a0a0f;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;font-family:var(--fm);touch-action:manipulation;letter-spacing:.3px;}
+.btn:hover{background:var(--accent2);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-outline{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;font-family:var(--fm);touch-action:manipulation;}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent);}
+.btn-green{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--green);color:#0a0a0f;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--fm);touch-action:manipulation;}
+.btn-sm{padding:5px 10px;font-size:10px;letter-spacing:.5px;background:transparent;color:var(--accent);border:1px solid #f9731644;border-radius:5px;cursor:pointer;font-family:var(--fm);touch-action:manipulation;min-height:32px;}
+.btn-danger{padding:5px 10px;font-size:10px;background:transparent;color:var(--red);border:1px solid #ef444444;border-radius:5px;cursor:pointer;font-family:var(--fm);touch-action:manipulation;min-height:32px;}
+.btn-blue{padding:5px 10px;font-size:10px;background:transparent;color:var(--blue);border:1px solid #6366f144;border-radius:5px;cursor:pointer;font-family:var(--fm);touch-action:manipulation;min-height:32px;}
+
+/* Inputs */
+.inp{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:10px 12px;color:var(--text);font-size:16px;font-family:var(--fm);outline:none;transition:border .15s;-webkit-appearance:none;}
+.inp:focus{border-color:var(--accent);}
+.sel{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:10px 12px;color:var(--text);font-size:16px;font-family:var(--fm);outline:none;-webkit-appearance:none;}
+.lbl{font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;font-weight:700;display:block;margin-bottom:6px;}
+.field{margin-bottom:14px;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+/* Auth */
+.auth-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;background:radial-gradient(ellipse at 50% 0%,#f9731608 0%,transparent 60%);}
+.auth-box{width:100%;max-width:400px;}
+.auth-logo{font-size:36px;font-weight:800;color:var(--accent);letter-spacing:-1px;margin-bottom:4px;text-align:center;}
+.auth-tagline{font-size:9px;letter-spacing:4px;color:var(--text3);margin-bottom:32px;text-align:center;text-transform:uppercase;}
+.auth-tabs{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:3px;margin-bottom:20px;}
+.auth-tab{flex:1;padding:9px;text-align:center;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;border:none;background:none;color:var(--text2);font-family:var(--fm);transition:all .15s;}
+.auth-tab.active{background:var(--accent);color:#0a0a0f;}
+
+/* Notices */
+.notice{padding:10px 14px;border-radius:6px;font-size:12px;margin-bottom:12px;line-height:1.5;}
+.notice-ok{background:#22c55e11;border:1px solid #22c55e33;color:var(--green);}
+.notice-err{background:#ef444411;border:1px solid #ef444433;color:var(--red);}
+.notice-warn{background:#f59e0b11;border:1px solid #f59e0b33;color:var(--amber);}
+.notice-blue{background:#6366f111;border:1px solid #6366f133;color:var(--blue);}
+.notice-orange{background:#f9731611;border:1px solid #f9731633;color:var(--accent);}
+
+/* Tags */
+.tag{display:inline-flex;align-items:center;font-size:9px;padding:3px 8px;border-radius:99px;font-weight:700;letter-spacing:.5px;}
+.tag-green{background:#22c55e22;color:var(--green);border:1px solid #22c55e44;}
+.tag-red{background:#ef444422;color:var(--red);border:1px solid #ef444444;}
+.tag-amber{background:#f59e0b22;color:var(--amber);border:1px solid #f59e0b44;}
+.tag-blue{background:#6366f122;color:var(--blue);border:1px solid #6366f144;}
+.tag-orange{background:#f9731622;color:var(--accent);border:1px solid #f9731644;}
+.tag-grey{background:#48475a22;color:var(--text3);border:1px solid #48475a44;}
+
+/* Modal */
+.modal-ov{position:fixed;inset:0;background:#000000cc;z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;overscroll-behavior:contain;}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);}
+.modal-body{padding:20px;}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border);}
+
+/* Plan card */
+.plan-card{cursor:pointer;background:var(--bg);border:2px solid var(--border);border-radius:10px;padding:16px 12px;text-align:center;transition:all .2s;}
+.plan-card.sel{background:var(--bg3);border-color:var(--accent);}
+
+/* Empty */
+.empty-state{text-align:center;padding:40px 20px;color:var(--text3);}
+.empty-ico{font-size:44px;margin-bottom:12px;}
+
+/* Loading */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px;}
+.spinner{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.fade-in{animation:fadeIn .25s ease;}
+
+/* Stock bar */
+.stock-bar{height:5px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:5px;}
+.stock-fill{height:100%;border-radius:3px;transition:width .4s;}
+
+/* Product card */
+.prod-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;transition:border .15s;}
+.prod-card:hover{border-color:var(--accent);}
+.prod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:14px;}
+
+/* Sale item */
+.sale-item{display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:6px;}
+
+/* Search */
+.search-wrap{position:relative;margin-bottom:14px;}
+.search-ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--text3);}
+.search-inp{padding-left:36px;}
+
+/* Report tabs */
+.rtabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+.rtab{padding:7px 14px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid var(--border);background:none;color:var(--text2);font-family:var(--fm);font-weight:600;transition:all .15s;}
+.rtab.active{background:var(--accent);color:#0a0a0f;border-color:var(--accent);}
+
+/* Store selector */
+.store-sel{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);}
+.store-sel:hover{border-color:var(--accent);color:var(--accent);}
+
+@media(max-width:768px){
+  .sidebar{display:none;}
+  .bottom-nav{display:block;}
+  .content{padding:10px;padding-bottom:calc(var(--nh) + env(safe-area-inset-bottom,0px) + 20px);}
+  .topbar{padding:0 10px;height:46px;}
+  .hide-mob{display:none;}
+  .form-grid{grid-template-columns:1fr;}
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:8px;}
+  .card{padding:12px;margin-bottom:10px;}
+  .modal-ov{padding:0;align-items:flex-end;}
+  .modal-box{max-width:100%;max-height:92dvh;border-radius:20px 20px 0 0;border-bottom:none;}
+  .modal-hdr{padding:14px 16px;}
+  .modal-body{padding:14px 16px;}
+  .modal-foot{padding:12px 16px;}
+  .modal-foot .btn,.modal-foot .btn-outline{flex:1;justify-content:center;padding:13px;}
+  .prod-grid{grid-template-columns:repeat(2,1fr);}
+  .btn{min-height:44px;}
+  .btn-outline{min-height:44px;}
+}
+@media(max-width:380px){
+  .prod-grid{grid-template-columns:1fr 1fr;}
+}
+</style>
+</head>
+<body>
+<div id="root"><div class="loading"><div class="spinner"></div><div style="font-size:10px;letter-spacing:3px;color:var(--text3)">LOADING…</div></div></div>
+
+<script>
+function makeIcon(size){
+  const c=document.createElement('canvas');c.width=c.height=size;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,size,size);
+  ctx.fillStyle='#f97316';ctx.beginPath();ctx.arc(size/2,size/2,size*.44,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#0a0a0f';ctx.beginPath();ctx.arc(size/2,size/2,size*.36,0,Math.PI*2);ctx.fill();
+  ctx.font=`${size*.34}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('📦',size/2,size/2+size*.03);
+  return c.toDataURL('image/png');
+}
+const i192=makeIcon(192),i512=makeIcon(512);
+document.getElementById('apple-icon').href=i192;
+document.getElementById('favicon-icon').href=i192;
+const mf={name:'StorePOS',short_name:'StorePOS',start_url:'/',scope:'/',display:'standalone',
+  background_color:'#0a0a0f',theme_color:'#0a0a0f',
+  icons:[{src:i192,sizes:'192x192',type:'image/png',purpose:'any maskable'},{src:i512,sizes:'512x512',type:'image/png',purpose:'any maskable'}]};
+document.getElementById('pwa-manifest').href='data:application/manifest+json,'+encodeURIComponent(JSON.stringify(mf));
+</script>
+
+<script>
+const FIREBASE_CONFIG={
+  apiKey:"%%FIREBASE_API_KEY%%",
+  authDomain:"%%FIREBASE_AUTH_DOMAIN%%",
+  projectId:"%%FIREBASE_PROJECT_ID%%",
+  storageBucket:"%%FIREBASE_STORAGE_BUCKET%%",
+  messagingSenderId:"%%FIREBASE_MESSAGING_SENDER_ID%%",
+  appId:"%%FIREBASE_APP_ID%%"
+};
+const FIREBASE_CONFIGURED=!FIREBASE_CONFIG.apiKey.includes('%%');
+let db=null;
+if(FIREBASE_CONFIGURED){try{firebase.initializeApp(FIREBASE_CONFIG);db=firebase.firestore();}catch(e){console.warn(e);}}
+</script>
+
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ── Constants ──────────────────────────────────────────────────
+const DEV_U='amisco4u2',DEV_P='Amiena702$';
+const OWNER={name:'Amin Moro Mohammed',mtn:'0243911216',telecel:'0505027255'};
+const TRIAL_DAYS=7;
+const PLANS={
+  basic:{id:'basic',name:'Basic',price:3000,label:'GH₵30/mo',products:50,stores:1,color:'#6366f1'},
+  standard:{id:'standard',name:'Standard',price:6000,label:'GH₵60/mo',products:200,stores:5,color:'#f97316'},
+  premium:{id:'premium',name:'Premium',price:10000,label:'GH₵100/mo',products:999,stores:999,color:'#f59e0b'},
+};
+const CURRENCIES=[
+  {code:'GHS',symbol:'GH₵',name:'Ghana Cedi'},
+  {code:'NGN',symbol:'₦',name:'Nigerian Naira'},
+  {code:'KES',symbol:'KSh',name:'Kenyan Shilling'},
+  {code:'USD',symbol:'$',name:'US Dollar'},
+  {code:'GBP',symbol:'£',name:'British Pound'},
+  {code:'EUR',symbol:'€',name:'Euro'},
+  {code:'ZAR',symbol:'R',name:'South African Rand'},
+  {code:'UGX',symbol:'USh',name:'Ugandan Shilling'},
+  {code:'TZS',symbol:'TSh',name:'Tanzanian Shilling'},
+  {code:'XOF',symbol:'CFA',name:'West African CFA'},
+  {code:'EGP',symbol:'E£',name:'Egyptian Pound'},
+  {code:'MAD',symbol:'MAD',name:'Moroccan Dirham'},
+  {code:'SLL',symbol:'Le',name:'Sierra Leonean Leone'},
+  {code:'GMD',symbol:'D',name:'Gambian Dalasi'},
+];
+const CATEGORIES=['All','Food & Drinks','Electronics','Clothing & Fashion','Health & Beauty','Household','Stationery','Spare Parts','Cosmetics','Pharmacy','Agriculture','Building Materials','Other'];
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const ROLES={owner:'owner',attendant:'attendant'};
+
+// ── Helpers ────────────────────────────────────────────────────
+const lsGet=k=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const today=()=>new Date().toISOString().slice(0,10);
+const hashStr=s=>{let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36);};
+const fmtDate=d=>{if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GH',{day:'numeric',month:'short',year:'numeric'});}catch{return d;}};
+const fmtMoney=(n,sym='GH₵')=>`${sym}${Number(n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const getSym=cur=>CURRENCIES.find(c=>c.code===cur)?.symbol||cur;
+
+// ── Sub helpers ────────────────────────────────────────────────
+// ── Attendant helpers ─────────────────────────────────────────
+const getAttendants=async(ownerUser)=>{
+  if(db)try{const d=await db.collection('srp_attendants').doc(ownerUser).get();if(d.exists)return d.data().list||[];}catch{}
+  return lsGet(`srp-att-${ownerUser}`)||[];
+};
+const saveAttendants=async(ownerUser,list)=>{
+  lsSet(`srp-att-${ownerUser}`,list);
+  if(db)try{await db.collection('srp_attendants').doc(ownerUser).set({list});}catch{}
+};
+const getAttendantSession=()=>lsGet('srp-att-session');
+const setAttendantSession=s=>lsSet('srp-att-session',s);
+const clearAttendantSession=()=>localStorage.removeItem('srp-att-session');
+const hashStr2=s=>{let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36);};
+
+const getSub=u=>lsGet(`srp-sub-${u}`);
+const setSub=(u,d)=>lsSet(`srp-sub-${u}`,d);
+const subStatus=u=>{
+  if(u===DEV_U)return{active:true,trial:false,plan:'premium',unlimited:true};
+  const s=getSub(u);if(!s)return{active:false,trial:false,expired:true};
+  const now=Date.now();
+  if(s.trialEnd&&now<s.trialEnd&&!s.paid)return{active:true,trial:true,daysLeft:Math.ceil((s.trialEnd-now)/86400000),plan:s.plan};
+  if(s.paid&&s.paidUntil&&now<s.paidUntil)return{active:true,trial:false,plan:s.plan,paidUntil:s.paidUntil};
+  return{active:false,trial:false,expired:true,plan:s.plan};
+};
+const startTrial=u=>{if(!getSub(u))setSub(u,{plan:'standard',trialEnd:Date.now()+TRIAL_DAYS*86400000,paid:false,created:Date.now()});};
+
+// ── Firebase helpers ───────────────────────────────────────────
+const getUsers=async()=>{
+  if(db)try{const d=await db.collection('srp_users').doc('index').get();if(d.exists)return d.data().users||{};}catch{}
+  return lsGet('srp-users')||{};
+};
+const saveUsers=async u=>{lsSet('srp-users',u);if(db)try{await db.collection('srp_users').doc('index').set({users:u});}catch{}};
+const saveData=async(u,data)=>{lsSet(`srp-data-${u}`,data);if(db)try{await db.collection('srp_data').doc(u).set(data);}catch{}};
+const loadData=async u=>{
+  if(db)try{const d=await db.collection('srp_data').doc(u).get();if(d.exists)return d.data();}catch{}
+  return lsGet(`srp-data-${u}`)||null;
+};
+
+// ── ATTENDANT LOGIN ────────────────────────────────────────────
+function AttendantLogin({onLogin}){
+  const [ownerUser,setOwnerUser]=useState('');
+  const [pin,setPin]=useState('');
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  async function doLogin(){
+    setErr('');setBusy(true);
+    const atts=await getAttendants(ownerUser.toLowerCase().trim());
+    const att=atts.find(a=>a.pin===hashStr2(pin)&&a.active);
+    if(!att){setErr('Invalid owner username or PIN.');setBusy(false);return;}
+    const users=await getUsers();
+    const owner=users[ownerUser.toLowerCase().trim()];
+    if(!owner){setErr('Owner not found.');setBusy(false);return;}
+    const sess={
+      username:ownerUser.toLowerCase().trim(),
+      business:owner.business,
+      currency:owner.currency||'GHS',
+      isDev:false,
+      isAttendant:true,
+      attendantName:att.name,
+      attendantId:att.id,
+      storeId:att.storeId,
+    };
+    setAttendantSession(sess);onLogin(sess);setBusy(false);
+  }
+
+  return(
+    <div className="auth-wrap">
+      <div className="auth-box fade-in">
+        <div className="auth-logo">📦 StorePOS</div>
+        <div className="auth-tagline">SHOP ATTENDANT LOGIN</div>
+        <div className="notice notice-blue" style={{textAlign:'center',fontSize:12}}>
+          👤 Enter your owner's username and your PIN to start recording sales.
+        </div>
+        {err&&<div className="notice notice-err">{err}</div>}
+        <div className="field"><label className="lbl">Owner Username</label>
+          <input className="inp" value={ownerUser} onChange={e=>setOwnerUser(e.target.value)} placeholder="owner_username" autoCapitalize="none"/>
+        </div>
+        <div className="field"><label className="lbl">Your PIN</label>
+          <input className="inp" type="password" inputMode="numeric" maxLength={6} value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} onKeyDown={e=>e.key==='Enter'&&doLogin()} placeholder="••••"/>
+        </div>
+        <button className="btn" style={{width:'100%',justifyContent:'center',padding:'13px',fontSize:14}} onClick={doLogin} disabled={busy}>
+          {busy?'Checking…':'Sign In as Attendant →'}
+        </button>
+        <p style={{textAlign:'center',fontSize:11,color:'var(--text3)',marginTop:14}}>
+          Owner? <span style={{color:'var(--accent)',cursor:'pointer'}} onClick={()=>window.location.reload()}>Sign in here →</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── ATTENDANT DASHBOARD ─────────────────────────────────────────
+function AttendantDashboard({session,onLogout}){
+  const [products,setProducts]=useState([]);
+  const [sales,setSales]=useState([]);
+  const [stores,setStores]=useState([]);
+  const [loaded,setLoaded]=useState(false);
+  const [syncState,setSyncState]=useState('saved');
+  const [view,setView]=useState('sell');
+  const saveTimer=useRef(null);
+  const sym=getSym(session.currency);
+  const u=session.username;
+
+  useEffect(()=>{
+    async function init(){
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setProducts(d.products||[]);setSales(d.sales||[]);setStores(d.stores||[]);setLoaded(true);return;}}catch{}
+      const local=lsGet(`srp-data-${u}`);
+      if(local){setProducts(local.products||[]);setSales(local.sales||[]);setStores(local.stores||[]);}
+      setLoaded(true);
+    }
+    init();
+  },[u]);
+
+  useEffect(()=>{
+    if(!db||!loaded)return;
+    const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{
+      if(snap.exists&&!snap.metadata.hasPendingWrites){
+        const d=snap.data();setProducts(d.products||[]);setSales(d.sales||[]);setStores(d.stores||[]);
+      }
+    },()=>{});
+    return unsub;
+  },[u,loaded]);
+
+  function doSave(pr,sa){
+    clearTimeout(saveTimer.current);setSyncState('saving');
+    saveTimer.current=setTimeout(async()=>{
+      const local=lsGet(`srp-data-${u}`)||{};
+      await saveData(u,{...local,products:pr,sales:sa,updatedAt:Date.now()});
+      setSyncState('saved');
+    },1000);
+  }
+  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(n,sales);return n;});}
+  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(products,n);return n;});}
+
+  const todaySales=sales.filter(s=>s.storeId===session.storeId&&s.date===today()&&s.attendantId===session.attendantId);
+  const todayTotal=todaySales.reduce((t,s)=>t+s.total,0);
+  const sc={saving:'var(--amber)',saved:'var(--green)'}[syncState]||'var(--text3)';
+
+  if(!loaded)return<div className="loading"><div className="spinner"/></div>;
+
+  return(
+    <div className="app" style={{flexDirection:'column'}}>
+      {/* Attendant topbar */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 14px',height:50,background:'var(--bg2)',borderBottom:'1px solid var(--border)',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:20}}>📦</span>
+          <div>
+            <div style={{fontWeight:800,fontSize:12,color:'var(--accent)'}}>StorePOS</div>
+            <div style={{fontSize:10,color:'var(--text3)'}}>👤 {session.attendantName}</div>
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:10,color:'var(--text3)'}}>Today's Sales</div>
+            <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:13,color:'var(--green)'}}>{fmtMoney(todayTotal,sym)}</div>
+          </div>
+          <div style={{width:7,height:7,borderRadius:'50%',background:sc}}/>
+          <button onClick={onLogout} style={{background:'#ef444411',border:'1px solid #ef444433',borderRadius:6,color:'var(--red)',padding:'5px 10px',fontSize:11,cursor:'pointer',fontFamily:'var(--fm)',fontWeight:700}}>Exit</button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:'flex',borderBottom:'1px solid var(--border)',background:'var(--bg2)',flexShrink:0}}>
+        {[['sell','🛒 New Sale'],['mytotals','📊 My Today']].map(([id,l])=>(
+          <button key={id} onClick={()=>setView(id)} style={{flex:1,padding:'12px 8px',border:'none',background:'none',color:view===id?'var(--accent)':'var(--text3)',fontFamily:'var(--fm)',fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${view===id?'var(--accent)':'transparent'}`}}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:12,paddingBottom:20}}>
+        {view==='sell'&&(
+          <VSell
+            products={products} setSales={fn=>{setSa(ss=>{const prev=typeof fn==='function'?fn(ss):fn;return prev.map(s=>!s.attendantId?{...s,attendantId:session.attendantId,attendantName:session.attendantName}:s);})}}
+            setProducts={setP} session={session} activeStore={session.storeId} stores={stores}
+          />
+        )}
+        {view==='mytotals'&&(
+          <div>
+            <div className="stats-grid">
+              <div className="stat-card"><div className="stat-label">My Sales Today</div><div className="stat-val" style={{color:'var(--accent)',fontSize:18}}>{fmtMoney(todayTotal,sym)}</div><div className="stat-sub">{todaySales.length} transactions</div></div>
+              <div className="stat-card"><div className="stat-label">Profit Generated</div><div className="stat-val" style={{color:'var(--green)',fontSize:18}}>{fmtMoney(todaySales.reduce((t,s)=>t+s.profit,0),sym)}</div></div>
+            </div>
+            <div className="card">
+              <div className="sec-title">My Sales — {new Date().toLocaleDateString('en-GH',{weekday:'long',day:'numeric',month:'long'})}</div>
+              {todaySales.length===0?<div style={{fontSize:12,color:'var(--text3)'}}>No sales recorded yet today.</div>
+                :todaySales.slice().sort((a,b)=>b.createdAt-a.createdAt).map(s=>(
+                  <div key={s.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid var(--border2)'}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13}}>{s.items?.length||0} item{s.items?.length!==1?'s':''}  {s.customer?`— ${s.customer}`:''}</div>
+                      <div style={{fontSize:10,color:'var(--text3)'}}>{new Date(s.createdAt).toLocaleTimeString('en-GH',{hour:'2-digit',minute:'2-digit'})} · {s.payMethod}</div>
+                    </div>
+                    <div style={{fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:13}}>{fmtMoney(s.total,sym)}</div>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── AUTH ───────────────────────────────────────────────────────
+function Auth({onLogin}){
+  const [tab,setTab]=useState('signin');
+  const [f,setF]=useState({u:'',p:'',c:'',b:'',currency:'GHS'});
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+  const sv=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  async function doSignIn(){
+    setErr('');setBusy(true);
+    const users=await getUsers();
+    const ukey=f.u.toLowerCase().trim();
+    if(!users[ukey]){setErr('Account not found.');setBusy(false);return;}
+    if(users[ukey].hash!==hashStr(f.p)){setErr('Wrong password.');setBusy(false);return;}
+    const sess={username:ukey,business:users[ukey].business,currency:users[ukey].currency||'GHS',isDev:!!users[ukey].isDev};
+    lsSet('srp-session',sess);onLogin(sess);setBusy(false);
+  }
+  async function doSignUp(){
+    setErr('');setBusy(true);
+    const ukey=f.u.toLowerCase().trim();
+    if(!ukey||!f.p||!f.b.trim()){setErr('All fields required.');setBusy(false);return;}
+    if(f.p.length<6){setErr('Password min 6 chars.');setBusy(false);return;}
+    if(f.p!==f.c){setErr('Passwords do not match.');setBusy(false);return;}
+    const users=await getUsers();
+    if(users[ukey]){setErr('Username taken.');setBusy(false);return;}
+    users[ukey]={hash:hashStr(f.p),business:f.b.trim(),currency:f.currency,isDev:false,created:Date.now()};
+    await saveUsers(users);
+    const sess={username:ukey,business:f.b.trim(),currency:f.currency,isDev:false};
+    lsSet('srp-session',sess);onLogin(sess);setBusy(false);
+  }
+
+  return(
+    <div className="auth-wrap">
+      <div className="auth-box fade-in">
+        <div className="auth-logo">📦 StorePOS</div>
+        <div className="auth-tagline">MULTI-STORE INVENTORY & SALES MANAGER</div>
+        <div className="auth-tabs">
+          {[['signin','Sign In'],['signup','Sign Up']].map(([t,l])=>(
+            <button key={t} className={`auth-tab${tab===t?' active':''}`} onClick={()=>{setTab(t);setErr('')}}>{l}</button>
+          ))}
+        </div>
+        {err&&<div className="notice notice-err">{err}</div>}
+        <div className="field"><label className="lbl">Username</label>
+          <input className="inp" value={f.u} onChange={e=>sv('u',e.target.value)} onKeyDown={e=>e.key==='Enter'&&(tab==='signin'?doSignIn():doSignUp())} placeholder="your_username" autoCapitalize="none"/>
+        </div>
+        {tab==='signup'&&<>
+          <div className="field"><label className="lbl">Business / Store Name</label>
+            <input className="inp" value={f.b} onChange={e=>sv('b',e.target.value)} placeholder="e.g. Mensah Provision Store"/>
+          </div>
+          <div className="field"><label className="lbl">Currency</label>
+            <select className="sel" value={f.currency} onChange={e=>sv('currency',e.target.value)}>
+              {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.symbol} — {c.name} ({c.code})</option>)}
+            </select>
+          </div>
+        </>}
+        <div className="field"><label className="lbl">Password</label>
+          <input className="inp" type="password" value={f.p} onChange={e=>sv('p',e.target.value)} onKeyDown={e=>e.key==='Enter'&&(tab==='signin'?doSignIn():doSignUp())} placeholder="••••••••"/>
+        </div>
+        {tab==='signup'&&<div className="field"><label className="lbl">Confirm Password</label>
+          <input className="inp" type="password" value={f.c} onChange={e=>sv('c',e.target.value)} placeholder="••••••••"/>
+        </div>}
+        <button className="btn" style={{width:'100%',justifyContent:'center',padding:'13px',fontSize:14}} onClick={tab==='signin'?doSignIn:doSignUp} disabled={busy}>
+          {busy?'Please wait…':tab==='signin'?'Sign In →':'Create Account →'}
+        </button>
+        <div style={{marginTop:20,fontSize:10,color:'var(--text3)',letterSpacing:2,textAlign:'center',opacity:.4}}>STOREPOS.WEB.APP</div>
+      </div>
+    </div>
+  );
+}
+
+// ── SUB WALL ───────────────────────────────────────────────────
+function SubWall({username,onActivated}){
+  const [sel,setSel]=useState('standard');
+  const [step,setStep]=useState('plans');
+  const plan=PLANS[sel];
+
+  function doTrial(){startTrial(username);onActivated();}
+  function doPay(){
+    const p={username,plan:sel,amount:plan.price,requestedAt:Date.now()};
+    lsSet(`srp-pending-${username}`,p);
+    if(db)db.collection('srp_pending').doc(username).set(p).catch(()=>{});
+    setStep('pay');
+  }
+  function check(){const s=subStatus(username);if(s.active)onActivated();else alert('Not yet activated. Send your MoMo reference on WhatsApp.');}
+
+  return(
+    <div className="auth-wrap">
+      <div style={{width:'100%',maxWidth:440}} className="fade-in">
+        <div className="auth-logo">📦 StorePOS</div>
+        <div className="auth-tagline">CHOOSE YOUR PLAN</div>
+        {step==='plans'&&(
+          <>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+              {Object.values(PLANS).map(p=>(
+                <div key={p.id} className={`plan-card${sel===p.id?' sel':''}`} onClick={()=>setSel(p.id)}>
+                  <div style={{fontSize:9,color:sel===p.id?p.color:'var(--text3)',letterSpacing:2,textTransform:'uppercase',marginBottom:4}}>{p.name}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:sel===p.id?p.color:'var(--text)',fontFamily:'var(--fd)',marginBottom:3}}>{p.label}</div>
+                  <div style={{fontSize:9,color:'var(--text3)'}}>{p.products===999?'∞':p.products} products</div>
+                  <div style={{fontSize:9,color:'var(--text3)'}}>{p.stores===999?'∞':p.stores} store{p.stores!==1?'s':''}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <button className="btn-outline" style={{padding:'13px',justifyContent:'center'}} onClick={doTrial}>🎁 7-Day Free Trial</button>
+              <button className="btn" style={{padding:'13px',justifyContent:'center'}} onClick={doPay}>📱 Pay via MoMo</button>
+            </div>
+            <div style={{marginTop:14,fontSize:11,color:'var(--text3)',textAlign:'center'}}>
+              Signed in as <span style={{color:'var(--accent)'}}>{username}</span> ·
+              <span style={{color:'var(--red)',cursor:'pointer',marginLeft:6}} onClick={()=>{lsSet('srp-session',null);window.location.reload()}}>Sign out</span>
+            </div>
+          </>
+        )}
+        {step==='pay'&&(
+          <div>
+            <div className="card" style={{border:'1px solid var(--accent)'}}>
+              <div className="sec-title" style={{color:'var(--accent)'}}>Payment Instructions</div>
+              <div style={{background:'var(--bg3)',borderRadius:8,padding:14,textAlign:'center',marginBottom:14}}>
+                <div style={{fontSize:28,fontWeight:800,color:'var(--accent)',fontFamily:'var(--fd)'}}>{plan.label.replace('/mo','')}</div>
+                <div style={{fontSize:11,color:'var(--text3)',marginTop:3}}>{plan.name} · 30 days</div>
+              </div>
+              {['Open MTN or Telecel MoMo app',`Send ${plan.label.replace('/mo','')} to number below`,'Copy transaction reference/ID',`WhatsApp reference + username "${username}" to owner`,"Tap 'I've Paid' — activated within minutes"].map((s,i)=>(
+                <div key={i} style={{display:'flex',gap:10,marginBottom:10,alignItems:'flex-start'}}>
+                  <div style={{width:20,height:20,borderRadius:'50%',background:'var(--accent)',color:'#0a0a0f',fontSize:10,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{i+1}</div>
+                  <div style={{fontSize:12,color:'var(--text2)',paddingTop:2,lineHeight:1.6}}>{s}</div>
+                </div>
+              ))}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10}}>
+                <div style={{background:'#f59e0b22',border:'1px solid #f59e0b44',borderRadius:8,padding:12,textAlign:'center'}}>
+                  <div style={{fontSize:8,letterSpacing:2,color:'var(--amber)',fontWeight:700,marginBottom:3}}>MTN MOMO</div>
+                  <div style={{fontSize:15,fontWeight:800,color:'var(--amber)',fontFamily:'var(--fd)'}}>{OWNER.mtn}</div>
+                </div>
+                <div style={{background:'#ef444422',border:'1px solid #ef444444',borderRadius:8,padding:12,textAlign:'center'}}>
+                  <div style={{fontSize:8,letterSpacing:2,color:'var(--red)',fontWeight:700,marginBottom:3}}>TELECEL</div>
+                  <div style={{fontSize:15,fontWeight:800,color:'var(--red)',fontFamily:'var(--fd)'}}>{OWNER.telecel}</div>
+                </div>
+              </div>
+            </div>
+            <button className="btn" style={{width:'100%',padding:14,justifyContent:'center',marginBottom:10}} onClick={check}>✓ I've Paid — Check Activation</button>
+            <button className="btn-outline" style={{width:'100%',padding:12,justifyContent:'center'}} onClick={()=>setStep('plans')}>← Back</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── MOBILE NAV ─────────────────────────────────────────────────
+function MobileNav({NAV,view,setView,onLogout,session,syncState}){
+  const [open,setOpen]=useState(false);
+  const main=NAV.slice(0,4),more=NAV.slice(4);
+  const sc={saving:'var(--amber)',saved:'var(--green)',error:'var(--red)'}[syncState]||'var(--text3)';
+  function go(id){setView(id);setOpen(false);}
+  return(
+    <>
+      {open&&(
+        <div style={{position:'fixed',inset:0,zIndex:199}} onClick={()=>setOpen(false)}>
+          <div style={{position:'absolute',bottom:'calc(var(--nh) + env(safe-area-inset-bottom,0px))',left:0,right:0,background:'var(--bg2)',borderTop:'1px solid var(--border)',borderRadius:'16px 16px 0 0',padding:'16px 12px 10px'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:14,paddingBottom:12,borderBottom:'1px solid var(--border)'}}>
+              <div style={{width:7,height:7,borderRadius:'50%',background:sc,flexShrink:0}}/>
+              <span style={{fontSize:11,color:'var(--text3)',flex:1}}>{syncState==='saving'?'Saving…':'All saved'}</span>
+              <span style={{fontSize:11,color:'var(--text3)'}}>@{session.username}</span>
+            </div>
+            {more.length>0&&<div style={{display:'grid',gridTemplateColumns:`repeat(${more.length},1fr)`,gap:8,marginBottom:12}}>
+              {more.map(n=>(
+                <button key={n.id} onClick={()=>go(n.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:5,padding:'14px 8px',background:view===n.id?'#f9731618':'var(--bg)',border:`1px solid ${view===n.id?'var(--accent)':'var(--border)'}`,borderRadius:10,cursor:'pointer',color:view===n.id?'var(--accent)':'var(--text2)',fontFamily:'var(--fm)',fontSize:10,fontWeight:600,letterSpacing:.5,textTransform:'uppercase'}}>
+                  <span style={{fontSize:22}}>{n.ico}</span>{n.label}
+                </button>
+              ))}
+            </div>}
+            <button onClick={onLogout} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:13,background:'#ef444411',border:'1px solid #ef444433',borderRadius:10,color:'var(--red)',fontFamily:'var(--fm)',fontSize:12,fontWeight:700,letterSpacing:1,textTransform:'uppercase',cursor:'pointer'}}>Sign Out</button>
+          </div>
+        </div>
+      )}
+      <nav className="bottom-nav">
+        <div className="bn-inner">
+          {main.map(n=>(
+            <button key={n.id} className={`bn-item${view===n.id?' active':''}`} onClick={()=>setView(n.id)}>
+              <span style={{fontSize:22}}>{n.ico}</span><span>{n.label.split(' ')[0]}</span>
+            </button>
+          ))}
+          <button className={`bn-item${open?' active':''}`} onClick={()=>setOpen(o=>!o)}>
+            <span style={{fontSize:22}}>⋯</span><span>More</span>
+          </button>
+        </div>
+      </nav>
+    </>
+  );
+}
+
+// ── STORE SELECTOR ─────────────────────────────────────────────
+function StoreSelector({stores,activeStore,setActiveStore,onAdd}){
+  const [open,setOpen]=useState(false);
+  const cur=stores.find(s=>s.id===activeStore)||stores[0];
+  return(
+    <div style={{position:'relative'}}>
+      <div className="store-sel" onClick={()=>setOpen(o=>!o)}>
+        <span>🏪</span>
+        <span style={{flex:1,color:'var(--text)',fontWeight:700,fontSize:13}}>{cur?.name||'Select Store'}</span>
+        <span style={{fontSize:10}}>▾</span>
+      </div>
+      {open&&(
+        <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,right:0,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,zIndex:50,overflow:'hidden',minWidth:180}}>
+          {stores.map(s=>(
+            <div key={s.id} onClick={()=>{setActiveStore(s.id);setOpen(false);}} style={{padding:'10px 14px',cursor:'pointer',fontSize:13,fontWeight:600,background:activeStore===s.id?'#f9731618':'transparent',color:activeStore===s.id?'var(--accent)':'var(--text2)'}}>
+              🏪 {s.name}
+              {s.location&&<div style={{fontSize:10,color:'var(--text3)',marginTop:1}}>{s.location}</div>}
+            </div>
+          ))}
+          <div onClick={()=>{onAdd();setOpen(false);}} style={{padding:'10px 14px',cursor:'pointer',fontSize:12,color:'var(--accent)',borderTop:'1px solid var(--border)',fontWeight:700}}>
+            + Add New Store
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DASHBOARD ──────────────────────────────────────────────────
+function VDash({stores,products,sales,session,setView,activeStore}){
+  const sym=getSym(session.currency);
+  const storeProd=products.filter(p=>p.storeId===activeStore);
+  const storeSales=sales.filter(s=>s.storeId===activeStore);
+  const now=new Date();
+  const todaySales=storeSales.filter(s=>s.date===today());
+  const monthSales=storeSales.filter(s=>{const d=new Date(s.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});
+  const todayRev=todaySales.reduce((t,s)=>t+s.total,0);
+  const todayProfit=todaySales.reduce((t,s)=>t+s.profit,0);
+  const monthRev=monthSales.reduce((t,s)=>t+s.total,0);
+  const lowStock=storeProd.filter(p=>p.stock<=p.lowStockAlert&&p.stock>0);
+  const outOfStock=storeProd.filter(p=>p.stock===0);
+  const totalStockValue=storeProd.reduce((t,p)=>t+(p.buyPrice*p.stock),0);
+
+  return(
+    <div>
+      {outOfStock.length>0&&(
+        <div className="notice notice-err" style={{display:'flex',alignItems:'center',gap:8}}>
+          <span>🚨</span>
+          <span style={{flex:1}}><strong>{outOfStock.length}</strong> product{outOfStock.length!==1?'s':''} out of stock!</span>
+          <button className="btn-sm" style={{fontSize:10}} onClick={()=>setView('products')}>View →</button>
+        </div>
+      )}
+      {lowStock.length>0&&(
+        <div className="notice notice-warn" style={{display:'flex',alignItems:'center',gap:8}}>
+          <span>⚠️</span>
+          <span style={{flex:1}}><strong>{lowStock.length}</strong> product{lowStock.length!==1?'s':''} running low on stock</span>
+          <button className="btn-sm" style={{fontSize:10,color:'var(--amber)',borderColor:'#f59e0b44'}} onClick={()=>setView('products')}>View →</button>
+        </div>
+      )}
+      <div className="stats-grid">
+        <div className="stat-card" style={{borderTop:'2px solid var(--accent)'}}>
+          <div className="stat-label" style={{color:'var(--accent)'}}>Today's Sales</div>
+          <div className="stat-val" style={{color:'var(--accent)',fontSize:18}}>{fmtMoney(todayRev,sym)}</div>
+          <div className="stat-sub">{todaySales.length} transaction{todaySales.length!==1?'s':''}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Today's Profit</div>
+          <div className="stat-val" style={{color:'var(--green)',fontSize:18}}>{fmtMoney(todayProfit,sym)}</div>
+          <div className="stat-sub">margin {todayRev>0?Math.round(todayProfit/todayRev*100):0}%</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">This Month</div>
+          <div className="stat-val" style={{fontSize:16}}>{fmtMoney(monthRev,sym)}</div>
+          <div className="stat-sub">{monthSales.length} sales</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Stock Value</div>
+          <div className="stat-val" style={{fontSize:16}}>{fmtMoney(totalStockValue,sym)}</div>
+          <div className="stat-sub">{storeProd.length} products</div>
+        </div>
+      </div>
+
+      {/* Quick sell button */}
+      <button className="btn" style={{width:'100%',justifyContent:'center',padding:14,fontSize:14,marginBottom:14}} onClick={()=>setView('sell')}>
+        🛒 New Sale
+      </button>
+
+      {/* Low stock alerts */}
+      {(lowStock.length>0||outOfStock.length>0)&&(
+        <div className="card">
+          <div className="sec-title">⚠️ Stock Alerts</div>
+          {[...outOfStock,...lowStock].slice(0,6).map(p=>(
+            <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border2)'}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{p.name}</div>
+                <div style={{fontSize:11,color:'var(--text3)'}}>{p.category}</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <span className={`tag ${p.stock===0?'tag-red':'tag-amber'}`}>{p.stock===0?'OUT OF STOCK':`${p.stock} left`}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Attendant daily report */}
+      {(() => {
+        const attSales=storeSales.filter(s=>s.date===today()&&s.attendantId);
+        if(attSales.length===0)return null;
+        const byAtt={};
+        attSales.forEach(s=>{if(!byAtt[s.attendantId])byAtt[s.attendantId]={name:s.attendantName||s.attendantId,total:0,count:0,profit:0};byAtt[s.attendantId].total+=s.total;byAtt[s.attendantId].count+=s.items?.length||0;byAtt[s.attendantId].profit+=s.profit;});
+        return(
+          <div className="card" style={{marginBottom:14,border:'1px solid #6366f133'}}>
+            <div className="sec-title" style={{color:'var(--blue)'}}>👤 Attendant Sales Today</div>
+            {Object.values(byAtt).map((a,i)=>(
+              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border2)'}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:1}}>👤 {a.name}</div>
+                  <div style={{fontSize:11,color:'var(--text3)'}}>{a.count} item{a.count!==1?'s':''} sold</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:13}}>{fmtMoney(a.total,sym)}</div>
+                  <div style={{fontSize:10,color:'var(--green)'}}>+{fmtMoney(a.profit,sym)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Recent sales */}
+      <div className="card">
+        <div className="sec-title">Recent Sales</div>
+        {storeSales.length===0?<div style={{fontSize:12,color:'var(--text3)'}}>No sales recorded yet. Tap "New Sale" to start.</div>
+          :storeSales.slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6).map(s=>(
+            <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border2)'}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:12,marginBottom:1}}>{s.items?.length||0} item{s.items?.length!==1?'s':''}{s.customer?` — ${s.customer}`:''}</div>
+                <div style={{fontSize:11,color:'var(--text3)'}}>{fmtDate(s.date)}</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:13}}>{fmtMoney(s.total,sym)}</div>
+                <div style={{fontSize:10,color:'var(--green)'}}>+{fmtMoney(s.profit,sym)}</div>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+// ── PRODUCTS ───────────────────────────────────────────────────
+function VProducts({stores,products,setProducts,session,activeStore}){
+  const [modal,setModal]=useState(null);
+  const [search,setSearch]=useState('');
+  const [cat,setCat]=useState('All');
+  const sym=getSym(session.currency);
+
+  function save(d){
+    setProducts(pp=>d.id?pp.map(p=>p.id===d.id?d:p):[...pp,{...d,id:uid(),storeId:activeStore,createdAt:Date.now()}]);
+    setModal(null);
+  }
+  function del(id){if(!confirm('Delete product?'))return;setProducts(pp=>pp.filter(p=>p.id!==id));}
+  function adjustStock(id,delta){
+    setProducts(pp=>pp.map(p=>p.id!==id?p:{...p,stock:Math.max(0,p.stock+delta)}));
+  }
+
+  const list=products.filter(p=>{
+    if(p.storeId!==activeStore)return false;
+    if(cat!=='All'&&p.category!==cat)return false;
+    if(search&&!p.name.toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+
+  const cats=['All',...new Set(products.filter(p=>p.storeId===activeStore).map(p=>p.category))];
+
+  return(
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,gap:8}}>
+        <div style={{fontSize:13,fontWeight:700,color:'var(--text3)'}}>{list.length} products</div>
+        <button className="btn" onClick={()=>setModal({data:null})}>+ Add Product</button>
+      </div>
+      <div className="search-wrap">
+        <span className="search-ico">🔍</span>
+        <input className="inp search-inp" placeholder="Search products…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+      <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:8,marginBottom:12,WebkitOverflowScrolling:'touch'}}>
+        {cats.map(c=>(
+          <button key={c} onClick={()=>setCat(c)} style={{padding:'6px 12px',fontSize:11,border:`1px solid ${cat===c?'var(--accent)':'var(--border)'}`,background:cat===c?'#f9731618':'transparent',color:cat===c?'var(--accent)':'var(--text2)',borderRadius:99,cursor:'pointer',fontFamily:'var(--fm)',fontWeight:600,whiteSpace:'nowrap',flexShrink:0}}>
+            {c}
+          </button>
+        ))}
+      </div>
+      {list.length===0&&<div className="card empty-state"><div className="empty-ico">📦</div><div style={{fontSize:13,letterSpacing:2}}>NO PRODUCTS YET</div><div style={{fontSize:12,marginTop:8}}>Add your first product to start tracking</div></div>}
+      <div className="prod-grid">
+        {list.map(p=>{
+          const pct=p.stock/(p.initialStock||Math.max(p.stock,1))*100;
+          const color=p.stock===0?'var(--red)':p.stock<=p.lowStockAlert?'var(--amber)':'var(--green)';
+          return(
+            <div key={p.id} className="prod-card">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                <div style={{flex:1,marginRight:6}}>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:2,lineHeight:1.3}}>{p.name}</div>
+                  <span className="tag tag-grey">{p.category}</span>
+                </div>
+                <div style={{display:'flex',gap:4,flexShrink:0}}>
+                  <button className="btn-sm" style={{padding:'3px 7px',fontSize:9}} onClick={()=>setModal({data:p})}>✏️</button>
+                  <button className="btn-danger" style={{padding:'3px 7px',fontSize:9}} onClick={()=>del(p.id)}>🗑</button>
+                </div>
+              </div>
+              <div style={{marginBottom:8}}>
+                <div style={{fontFamily:'var(--fd)',fontSize:15,fontWeight:700,color:'var(--accent)',marginBottom:1}}>{fmtMoney(p.sellPrice,sym)}</div>
+                <div style={{fontSize:10,color:'var(--text3)'}}>Cost: {fmtMoney(p.buyPrice,sym)} · Profit: {fmtMoney(p.sellPrice-p.buyPrice,sym)}</div>
+              </div>
+              <div style={{marginBottom:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                  <span style={{fontSize:11,color:'var(--text3)'}}>Stock</span>
+                  <span style={{fontSize:12,fontWeight:700,color,fontFamily:'var(--fd)'}}>{p.stock} {p.unit||'pcs'}</span>
+                </div>
+                <div className="stock-bar"><div className="stock-fill" style={{width:`${Math.min(100,pct)}%`,background:color}}/></div>
+              </div>
+              <div style={{display:'flex',gap:5,justifyContent:'center'}}>
+                <button onClick={()=>adjustStock(p.id,-1)} style={{flex:1,padding:'6px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--red)',cursor:'pointer',fontSize:14,fontWeight:700,touchAction:'manipulation'}}>−</button>
+                <button onClick={()=>adjustStock(p.id,1)} style={{flex:1,padding:'6px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--green)',cursor:'pointer',fontSize:14,fontWeight:700}}>+</button>
+                <button onClick={()=>setModal({data:{...p,_restock:true}})} style={{flex:1,padding:'6px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--accent)',cursor:'pointer',fontSize:10,fontWeight:700}}>Restock</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {modal&&<ProductModal data={modal.data} onSave={save} onClose={()=>setModal(null)} sym={sym}/>}
+    </div>
+  );
+}
+
+function ProductModal({data,onSave,onClose,sym}){
+  const isRestock=data?._restock;
+  const [f,setF]=useState(data&&!isRestock?data:{
+    name:'',category:'Food & Drinks',buyPrice:0,sellPrice:0,stock:0,unit:'pcs',lowStockAlert:5,barcode:'',notes:'',initialStock:0
+  });
+  const [restock,setRestock]=useState(0);
+  const sv=(k,v)=>setF(p=>({...p,[k]:v}));
+  const profit=f.sellPrice-f.buyPrice;
+  const margin=f.sellPrice>0?Math.round(profit/f.sellPrice*100):0;
+
+  function handleSave(){
+    if(isRestock){
+      const qty=parseInt(restock)||0;
+      onSave({...data,stock:data.stock+qty,initialStock:data.stock+qty,_restock:undefined});
+    }else{
+      if(!f.name.trim())return;
+      onSave({...f,initialStock:f.initialStock||f.stock});
+    }
+  }
+
+  if(isRestock){
+    return(
+      <div className="modal-ov" onClick={onClose}>
+        <div className="modal-box" onClick={e=>e.stopPropagation()}>
+          <div className="modal-hdr"><span style={{fontWeight:700}}>Restock — {data.name}</span>
+            <button style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:18}} onClick={onClose}>✕</button></div>
+          <div className="modal-body">
+            <div style={{textAlign:'center',marginBottom:16}}>
+              <div style={{fontSize:12,color:'var(--text3)',marginBottom:4}}>Current Stock</div>
+              <div style={{fontSize:32,fontWeight:800,fontFamily:'var(--fd)',color:'var(--accent)'}}>{data.stock} <span style={{fontSize:14}}>{data.unit||'pcs'}</span></div>
+            </div>
+            <div className="field"><label className="lbl">Quantity to Add</label>
+              <input className="inp" type="number" value={restock||''} onChange={e=>setRestock(e.target.value)} placeholder="0" min="0"/>
+            </div>
+            {restock>0&&<div className="notice notice-ok">New stock will be: <strong>{parseInt(data.stock)+(parseInt(restock)||0)} {data.unit||'pcs'}</strong></div>}
+          </div>
+          <div className="modal-foot">
+            <button className="btn-outline" onClick={onClose}>Cancel</button>
+            <button className="btn" onClick={handleSave} disabled={!restock||restock<=0}>Add Stock</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div className="modal-ov" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="modal-hdr"><span style={{fontWeight:700}}>{data?'Edit':'Add'} Product</span>
+          <button style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:18}} onClick={onClose}>✕</button></div>
+        <div className="modal-body">
+          <div className="field"><label className="lbl">Product Name</label><input className="inp" value={f.name} onChange={e=>sv('name',e.target.value)} placeholder="e.g. Milo 400g"/></div>
+          <div className="form-grid">
+            <div className="field"><label className="lbl">Category</label>
+              <select className="sel" value={f.category} onChange={e=>sv('category',e.target.value)}>
+                {CATEGORIES.filter(c=>c!=='All').map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="field"><label className="lbl">Unit</label>
+              <select className="sel" value={f.unit} onChange={e=>sv('unit',e.target.value)}>
+                {['pcs','kg','g','L','mL','box','pack','dozen','bag','roll','bottle','tin','sachet','pair'].map(u=><option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="field"><label className="lbl">Buy Price ({sym})</label><input className="inp" type="number" value={f.buyPrice||''} onChange={e=>sv('buyPrice',parseFloat(e.target.value)||0)} placeholder="0"/></div>
+            <div className="field"><label className="lbl">Sell Price ({sym})</label><input className="inp" type="number" value={f.sellPrice||''} onChange={e=>sv('sellPrice',parseFloat(e.target.value)||0)} placeholder="0"/></div>
+          </div>
+          {f.sellPrice>0&&f.buyPrice>0&&(
+            <div className="notice notice-ok" style={{textAlign:'center',marginBottom:12}}>
+              Profit: <strong>{fmtMoney(profit,sym)}</strong> · Margin: <strong>{margin}%</strong>
+            </div>
+          )}
+          <div className="form-grid">
+            <div className="field"><label className="lbl">Stock Qty</label><input className="inp" type="number" value={f.stock||''} onChange={e=>sv('stock',parseInt(e.target.value)||0)} placeholder="0"/></div>
+            <div className="field"><label className="lbl">Low Stock Alert</label><input className="inp" type="number" value={f.lowStockAlert||''} onChange={e=>sv('lowStockAlert',parseInt(e.target.value)||5)} placeholder="5"/></div>
+          </div>
+          <div className="field"><label className="lbl">Barcode (optional)</label><input className="inp" value={f.barcode||''} onChange={e=>sv('barcode',e.target.value)} placeholder="Scan or type barcode"/></div>
+          <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes||''} onChange={e=>sv('notes',e.target.value)} placeholder="Any notes…"/></div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={handleSave} disabled={!f.name.trim()}>Save Product</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SELL ───────────────────────────────────────────────────────
+function VSell({products,setSales,setProducts,session,activeStore,stores}){
+  const [cart,setCart]=useState([]);
+  const [search,setSearch]=useState('');
+  const [customer,setCustomer]=useState('');
+  const [payMethod,setPayMethod]=useState('Cash');
+  const [done,setDone]=useState(null);
+  const sym=getSym(session.currency);
+  const storeProds=products.filter(p=>p.storeId===activeStore&&p.stock>0);
+  const filtered=storeProds.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.category.toLowerCase().includes(search.toLowerCase()));
+
+  function addToCart(p){
+    setCart(c=>{
+      const ex=c.find(i=>i.id===p.id);
+      if(ex){if(ex.qty>=p.stock)return c;return c.map(i=>i.id===p.id?{...i,qty:i.qty+1}:i);}
+      return[...c,{...p,qty:1}];
+    });
+  }
+  function removeFromCart(id){setCart(c=>c.filter(i=>i.id!==id));}
+  function changeQty(id,qty){
+    const p=products.find(p=>p.id===id);
+    if(qty<1||qty>p.stock)return;
+    setCart(c=>c.map(i=>i.id===id?{...i,qty}:i));
+  }
+
+  const total=cart.reduce((t,i)=>t+i.sellPrice*i.qty,0);
+  const profit=cart.reduce((t,i)=>t+(i.sellPrice-i.buyPrice)*i.qty,0);
+
+  function completeSale(){
+    if(cart.length===0)return;
+    const sale={
+      id:uid(),storeId:activeStore,
+      items:cart.map(i=>({id:i.id,name:i.name,qty:i.qty,sellPrice:i.sellPrice,buyPrice:i.buyPrice,unit:i.unit})),
+      total,profit,customer,payMethod,date:today(),createdAt:Date.now()
+    };
+    setSales(ss=>[...ss,sale]);
+    setProducts(pp=>pp.map(p=>{
+      const item=cart.find(i=>i.id===p.id);
+      return item?{...p,stock:p.stock-item.qty}:p;
+    }));
+    setDone(sale);setCart([]);setSearch('');setCustomer('');
+  }
+
+  function shareReceipt(sale){
+    const store=stores.find(s=>s.id===activeStore);
+    const txt=`🧾 RECEIPT\n${store?.name||'Store'}\n${'─'.repeat(24)}\n${sale.items.map(i=>`${i.name} x${i.qty} @ ${fmtMoney(i.sellPrice,sym)} = ${fmtMoney(i.sellPrice*i.qty,sym)}`).join('\n')}\n${'─'.repeat(24)}\nTOTAL: ${fmtMoney(sale.total,sym)}\nPayment: ${sale.payMethod}\n${sale.customer?`Customer: ${sale.customer}\n`:''}\nDate: ${fmtDate(sale.date)}\nPowered by StorePOS`;
+    if(navigator.share)navigator.share({title:'Receipt',text:txt});
+    else navigator.clipboard.writeText(txt).then(()=>alert('Receipt copied!'));
+  }
+
+  if(done){
+    return(
+      <div className="fade-in">
+        <div className="card" style={{textAlign:'center',border:'1px solid var(--green)',marginBottom:14}}>
+          <div style={{fontSize:44,marginBottom:10}}>✅</div>
+          <div style={{fontSize:18,fontWeight:800,color:'var(--green)',marginBottom:4}}>Sale Complete!</div>
+          <div style={{fontFamily:'var(--fd)',fontSize:24,fontWeight:700,color:'var(--accent)',marginBottom:4}}>{fmtMoney(done.total,sym)}</div>
+          <div style={{fontSize:12,color:'var(--green)'}}>Profit: +{fmtMoney(done.profit,sym)}</div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+          <button className="btn-outline" style={{justifyContent:'center',padding:13}} onClick={()=>shareReceipt(done)}>📤 Receipt</button>
+          <button className="btn" style={{justifyContent:'center',padding:13}} onClick={()=>setDone(null)}>🛒 New Sale</button>
+        </div>
+        {/* Sale summary */}
+        <div className="card">
+          <div className="sec-title">Sale Summary</div>
+          {done.items.map((item,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',borderBottom:'1px solid var(--border2)',fontSize:13}}>
+              <span>{item.name} × {item.qty}</span>
+              <span style={{fontFamily:'var(--fd)',fontWeight:600}}>{fmtMoney(item.sellPrice*item.qty,sym)}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',fontWeight:800,fontSize:15}}>
+            <span>Total</span><span style={{color:'var(--accent)',fontFamily:'var(--fd)'}}>{fmtMoney(done.total,sym)}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      {/* Cart */}
+      {cart.length>0&&(
+        <div className="card" style={{border:'1px solid var(--accent)',marginBottom:14}}>
+          <div className="sec-title" style={{color:'var(--accent)'}}>🛒 Cart ({cart.length} item{cart.length!==1?'s':''})</div>
+          {cart.map(item=>(
+            <div key={item.id} className="sale-item">
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{item.name}</div>
+                <div style={{fontSize:12,color:'var(--text3)'}}>{fmtMoney(item.sellPrice,sym)} each</div>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <button onClick={()=>changeQty(item.id,item.qty-1)} style={{width:28,height:28,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--red)',cursor:'pointer',fontSize:16,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                <span style={{fontFamily:'var(--fd)',fontWeight:700,minWidth:24,textAlign:'center'}}>{item.qty}</span>
+                <button onClick={()=>changeQty(item.id,item.qty+1)} style={{width:28,height:28,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--green)',cursor:'pointer',fontSize:16,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                <span style={{fontFamily:'var(--fd)',fontSize:13,fontWeight:700,minWidth:70,textAlign:'right',color:'var(--accent)'}}>{fmtMoney(item.sellPrice*item.qty,sym)}</span>
+                <button onClick={()=>removeFromCart(item.id)} style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16,padding:'0 4px'}}>✕</button>
+              </div>
+            </div>
+          ))}
+          <div style={{borderTop:'1px solid var(--border)',paddingTop:12,marginTop:8}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+              <span style={{fontWeight:800,fontSize:15}}>Total</span>
+              <span style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:17,color:'var(--accent)'}}>{fmtMoney(total,sym)}</span>
+            </div>
+            <div style={{fontSize:11,color:'var(--green)',textAlign:'right',marginBottom:12}}>Profit: +{fmtMoney(profit,sym)}</div>
+            <div className="form-grid" style={{marginBottom:10}}>
+              <div><label className="lbl">Customer (opt.)</label><input className="inp" value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Customer name"/></div>
+              <div><label className="lbl">Payment</label>
+                <select className="sel" value={payMethod} onChange={e=>setPayMethod(e.target.value)}>
+                  {['Cash','MoMo','Card','Credit','Bank Transfer'].map(m=><option key={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <button className="btn-green" style={{width:'100%',justifyContent:'center',padding:14,fontSize:14}} onClick={completeSale}>
+              ✅ Complete Sale — {fmtMoney(total,sym)}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Product search */}
+      <div className="search-wrap">
+        <span className="search-ico">🔍</span>
+        <input className="inp search-inp" placeholder="Search product to add…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+
+      {storeProds.length===0&&<div className="card empty-state"><div className="empty-ico">📦</div><div style={{fontSize:13,letterSpacing:2}}>NO PRODUCTS IN STOCK</div><div style={{fontSize:12,marginTop:8}}>Add products first before making a sale</div></div>}
+
+      <div className="prod-grid">
+        {filtered.map(p=>{
+          const inCart=cart.find(i=>i.id===p.id);
+          return(
+            <div key={p.id} className="prod-card" style={{cursor:'pointer',border:inCart?'1px solid var(--accent)':'1px solid var(--border)'}} onClick={()=>addToCart(p)}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:4,lineHeight:1.3}}>{p.name}</div>
+              <span className="tag tag-grey" style={{marginBottom:8,display:'inline-flex'}}>{p.category}</span>
+              <div style={{fontFamily:'var(--fd)',fontSize:16,fontWeight:700,color:'var(--accent)',marginBottom:4}}>{fmtMoney(p.sellPrice,sym)}</div>
+              <div style={{fontSize:11,color:'var(--text3)',marginBottom:6}}>Stock: {p.stock} {p.unit||'pcs'}</div>
+              {inCart&&<div className="notice notice-orange" style={{padding:'4px 8px',fontSize:11,textAlign:'center',margin:0}}>In cart: {inCart.qty}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── SALES HISTORY ──────────────────────────────────────────────
+function VSalesHistory({sales,products,session,setSales,activeStore,stores}){
+  const [search,setSearch]=useState('');
+  const [dateFilter,setDateFilter]=useState('all');
+  const sym=getSym(session.currency);
+
+  const now=new Date();
+  const list=sales.filter(s=>{
+    if(s.storeId!==activeStore)return false;
+    if(search&&!s.customer?.toLowerCase().includes(search.toLowerCase()))return false;
+    if(dateFilter==='today'&&s.date!==today())return false;
+    if(dateFilter==='week'){const d=new Date(s.date);const w=new Date();w.setDate(w.getDate()-7);if(d<w)return false;}
+    if(dateFilter==='month'){const d=new Date(s.date);if(d.getMonth()!==now.getMonth()||d.getFullYear()!==now.getFullYear())return false;}
+    return true;
+  }).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+
+  const totalRev=list.reduce((t,s)=>t+s.total,0);
+  const totalProfit=list.reduce((t,s)=>t+s.profit,0);
+
+  function delSale(id){
+    if(!confirm('Delete this sale?'))return;
+    setSales(ss=>ss.filter(s=>s.id!==id));
+  }
+  function shareReceipt(s){
+    const store=stores.find(st=>st.id===activeStore);
+    const txt=`🧾 RECEIPT\n${store?.name||''}\n${'─'.repeat(22)}\n${s.items?.map(i=>`${i.name} x${i.qty} = ${fmtMoney(i.sellPrice*i.qty,sym)}`).join('\n')||''}\n${'─'.repeat(22)}\nTOTAL: ${fmtMoney(s.total,sym)}\n${s.customer?`Customer: ${s.customer}\n`:''}Date: ${fmtDate(s.date)}\nStorePOS`;
+    if(navigator.share)navigator.share({title:'Receipt',text:txt});
+    else navigator.clipboard.writeText(txt).then(()=>alert('Copied!'));
+  }
+
+  return(
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
+        <div className="stat-card"><div className="stat-label">Revenue</div><div className="stat-val" style={{fontSize:16,color:'var(--accent)'}}>{fmtMoney(totalRev,sym)}</div></div>
+        <div className="stat-card"><div className="stat-label">Profit</div><div className="stat-val" style={{fontSize:16,color:'var(--green)'}}>{fmtMoney(totalProfit,sym)}</div></div>
+      </div>
+      <div className="rtabs">
+        {[['all','All Time'],['today','Today'],['week','This Week'],['month','This Month']].map(([id,l])=>(
+          <button key={id} className={`rtab${dateFilter===id?' active':''}`} onClick={()=>setDateFilter(id)}>{l}</button>
+        ))}
+      </div>
+      <div className="search-wrap">
+        <span className="search-ico">🔍</span>
+        <input className="inp search-inp" placeholder="Search customer…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+      {list.length===0&&<div className="card empty-state"><div className="empty-ico">🧾</div><div style={{fontSize:13,letterSpacing:2}}>NO SALES FOUND</div></div>}
+      {list.map(s=>(
+        <div key={s.id} className="card" style={{marginBottom:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{s.items?.length||0} item{s.items?.length!==1?'s':''}{s.customer?` — ${s.customer}`:''}</div>
+              <div style={{fontSize:11,color:'var(--text3)',marginBottom:4}}>{fmtDate(s.date)} · {s.payMethod}</div>
+              {s.items?.slice(0,2).map((item,i)=>(
+                <div key={i} style={{fontSize:11,color:'var(--text2)'}}>{item.name} ×{item.qty}</div>
+              ))}
+              {s.items?.length>2&&<div style={{fontSize:10,color:'var(--text3)'}}>+{s.items.length-2} more…</div>}
+            </div>
+            <div style={{textAlign:'right',flexShrink:0}}>
+              <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:15,color:'var(--accent)',marginBottom:3}}>{fmtMoney(s.total,sym)}</div>
+              <div style={{fontSize:10,color:'var(--green)',marginBottom:8}}>+{fmtMoney(s.profit,sym)}</div>
+              <div style={{display:'flex',gap:5,justifyContent:'flex-end'}}>
+                <button className="btn-sm" style={{fontSize:9}} onClick={()=>shareReceipt(s)}>📤</button>
+                <button className="btn-danger" style={{fontSize:9}} onClick={()=>delSale(s.id)}>🗑</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── REPORTS ───────────────────────────────────────────────────
+function VReports({sales,products,session,activeStore}){
+  const [yr,setYr]=useState(new Date().getFullYear().toString());
+  const sym=getSym(session.currency);
+  const storeSales=sales.filter(s=>s.storeId===activeStore);
+  const storeProds=products.filter(p=>p.storeId===activeStore);
+  const ySales=storeSales.filter(s=>new Date(s.date).getFullYear().toString()===yr);
+  const yRev=ySales.reduce((t,s)=>t+s.total,0);
+  const yProfit=ySales.reduce((t,s)=>t+s.profit,0);
+  const monthly=MONTHS.map((m,i)=>{const ms=ySales.filter(s=>new Date(s.date).getMonth()===i);return{m,rev:ms.reduce((t,s)=>t+s.total,0),profit:ms.reduce((t,s)=>t+s.profit,0),count:ms.length};});
+  const maxRev=Math.max(...monthly.map(m=>m.rev),1);
+
+  // Best sellers
+  const itemCounts={};
+  storeSales.forEach(s=>s.items?.forEach(i=>{if(!itemCounts[i.id])itemCounts[i.id]={name:i.name,qty:0,revenue:0};itemCounts[i.id].qty+=i.qty;itemCounts[i.id].revenue+=i.sellPrice*i.qty;}));
+  const topItems=Object.values(itemCounts).sort((a,b)=>b.qty-a.qty).slice(0,5);
+  const totalStockValue=storeProds.reduce((t,p)=>t+(p.buyPrice*p.stock),0);
+  const totalRetailValue=storeProds.reduce((t,p)=>t+(p.sellPrice*p.stock),0);
+
+  return(
+    <div>
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <label className="lbl" style={{margin:0}}>Year</label>
+          <select className="sel" style={{width:'auto',minWidth:90}} value={yr} onChange={e=>setYr(e.target.value)}>
+            {[...new Set([new Date().getFullYear().toString(),...storeSales.map(s=>new Date(s.date).getFullYear().toString())])].sort().reverse().map(y=><option key={y}>{y}</option>)}
+          </select>
+          <span style={{marginLeft:'auto',fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:15}}>{fmtMoney(yRev,sym)}</span>
+        </div>
+      </div>
+      <div className="stats-grid">
+        <div className="stat-card"><div className="stat-label">Year Revenue</div><div className="stat-val" style={{fontSize:15,color:'var(--accent)'}}>{fmtMoney(yRev,sym)}</div></div>
+        <div className="stat-card"><div className="stat-label">Year Profit</div><div className="stat-val" style={{fontSize:15,color:'var(--green)'}}>{fmtMoney(yProfit,sym)}</div></div>
+        <div className="stat-card"><div className="stat-label">Stock Value</div><div className="stat-val" style={{fontSize:15}}>{fmtMoney(totalStockValue,sym)}</div><div className="stat-sub">cost price</div></div>
+        <div className="stat-card"><div className="stat-label">Retail Value</div><div className="stat-val" style={{fontSize:15}}>{fmtMoney(totalRetailValue,sym)}</div><div className="stat-sub">if all sold</div></div>
+      </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="sec-title">Monthly Revenue — {yr}</div>
+        {monthly.map(({m,rev,profit,count})=>(
+          <div key={m} style={{marginBottom:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+              <span style={{fontSize:12,color:'var(--text2)',minWidth:32}}>{m}</span>
+              <span style={{fontSize:11,color:'var(--text3)'}}>{count} sales</span>
+              <span style={{fontSize:12,fontWeight:700,color:rev>0?'var(--accent)':'var(--text3)',fontFamily:'var(--fd)',minWidth:90,textAlign:'right'}}>{rev>0?fmtMoney(rev,sym):'—'}</span>
+            </div>
+            <div style={{height:6,background:'var(--border)',borderRadius:3,overflow:'hidden'}}>
+              <div style={{height:'100%',background:'var(--accent)',width:`${rev/maxRev*100}%`,borderRadius:3,transition:'width .4s'}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Live Stock Level Chart */}
+      <div className="card" style={{marginBottom:14}}>
+        <div className="sec-title">📊 Stock Levels — Live</div>
+        {storeProds.length===0?<div style={{fontSize:12,color:'var(--text3)'}}>No products yet.</div>
+          :storeProds.slice().sort((a,b)=>{
+            const pctA=a.stock/(a.initialStock||Math.max(a.stock,1));
+            const pctB=b.stock/(b.initialStock||Math.max(b.stock,1));
+            return pctA-pctB;
+          }).map(p=>{
+            const maxStock=p.initialStock||Math.max(p.stock,p.lowStockAlert*2,1);
+            const pct=Math.min(100,Math.round(p.stock/maxStock*100));
+            const color=p.stock===0?'var(--red)':p.stock<=p.lowStockAlert?'var(--amber)':'var(--green)';
+            const status=p.stock===0?'OUT':'LOW';
+            return(
+              <div key={p.id} style={{marginBottom:14}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <span style={{fontWeight:700,fontSize:12,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',display:'block'}}>{p.name}</span>
+                    <span style={{fontSize:10,color:'var(--text3)'}}>{p.category}</span>
+                  </div>
+                  <div style={{textAlign:'right',flexShrink:0,marginLeft:10}}>
+                    <span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:13,color}}>{p.stock} <span style={{fontSize:10,fontWeight:400,color:'var(--text3)'}}>{p.unit||'pcs'}</span></span>
+                    {(p.stock===0||p.stock<=p.lowStockAlert)&&<span className={`tag ${p.stock===0?'tag-red':'tag-amber'}`} style={{marginLeft:6,fontSize:8}}>{status}</span>}
+                  </div>
+                </div>
+                <div style={{height:10,background:'var(--border)',borderRadius:5,overflow:'hidden',position:'relative'}}>
+                  <div style={{
+                    height:'100%',borderRadius:5,
+                    width:`${pct}%`,
+                    background:p.stock===0?'var(--red)':pct<=25?'var(--red)':pct<=50?'var(--amber)':'var(--green)',
+                    transition:'width 0.8s cubic-bezier(0.4,0,0.2,1)',
+                    boxShadow:p.stock>0?`0 0 8px ${color}88`:'none',
+                    position:'relative',
+                    animation:p.stock>0&&pct<=25?'pulse 2s infinite':'none',
+                  }}/>
+                  {pct>8&&<span style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:7,fontFamily:'var(--fd)',fontWeight:700,color:'#0a0a0f',lineHeight:1}}>{pct}%</span>}
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
+                  <span style={{fontSize:9,color:'var(--text3)'}}>0</span>
+                  <span style={{fontSize:9,color:'var(--text3)'}}>Alert: {p.lowStockAlert}</span>
+                  <span style={{fontSize:9,color:'var(--text3)'}}>Max: {maxStock}</span>
+                </div>
+              </div>
+            );
+          })
+        }
+      </div>
+
+      <div className="card" style={{marginBottom:14}}>
+        <div className="sec-title">🏆 Best Sellers</div>
+        {topItems.length===0?<div style={{fontSize:12,color:'var(--text3)'}}>No sales data yet.</div>
+          :topItems.map((item,i)=>(
+            <div key={item.name} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border2)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <span style={{fontFamily:'var(--fd)',fontSize:11,color:'var(--text3)',minWidth:20}}>#{i+1}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13}}>{item.name}</div>
+                  <div style={{fontSize:10,color:'var(--text3)'}}>{item.qty} units sold</div>
+                </div>
+              </div>
+              <div style={{fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:12}}>{fmtMoney(item.revenue,sym)}</div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+// ── STORES ────────────────────────────────────────────────────
+function VStores({stores,setStores,products,sales,session}){
+  const [modal,setModal]=useState(null);
+  const sym=getSym(session.currency);
+
+  function save(d){setStores(ss=>d.id?ss.map(s=>s.id===d.id?d:s):[...ss,{...d,id:uid(),createdAt:Date.now()}]);setModal(null);}
+  function del(id){
+    const hasProd=products.some(p=>p.storeId===id);
+    if(hasProd&&!confirm('This store has products. Delete anyway?'))return;
+    setStores(ss=>ss.filter(s=>s.id!==id));
+  }
+
+  return(
+    <div>
+      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+        <button className="btn" onClick={()=>setModal({data:null})}>+ Add Store</button>
+      </div>
+      {stores.length===0&&<div className="card empty-state"><div className="empty-ico">🏪</div><div style={{fontSize:13,letterSpacing:2}}>NO STORES YET</div></div>}
+      {stores.map(s=>{
+        const sp=products.filter(p=>p.storeId===s.id);
+        const ss=sales.filter(sa=>sa.storeId===s.id);
+        const rev=ss.reduce((t,sa)=>t+sa.total,0);
+        return(
+          <div key={s.id} className="card" style={{marginBottom:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:15,marginBottom:3}}>🏪 {s.name}</div>
+                {s.location&&<div style={{fontSize:12,color:'var(--text3)',marginBottom:4}}>📍 {s.location}</div>}
+                {s.phone&&<div style={{fontSize:12,color:'var(--text3)',marginBottom:4}}>📞 {s.phone}</div>}
+                <div style={{display:'flex',gap:12,fontSize:11,color:'var(--text2)',marginTop:6}}>
+                  <span>📦 {sp.length} products</span>
+                  <span>🧾 {ss.length} sales</span>
+                  <span style={{color:'var(--accent)',fontFamily:'var(--fd)',fontWeight:700}}>{fmtMoney(rev,sym)}</span>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:6}}>
+                <button className="btn-sm" onClick={()=>setModal({data:s})}>Edit</button>
+                <button className="btn-danger" onClick={()=>del(s.id)}>Del</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {modal&&<StoreModal data={modal.data} onSave={save} onClose={()=>setModal(null)}/>}
+    </div>
+  );
+}
+
+function StoreModal({data,onSave,onClose}){
+  const [f,setF]=useState(data||{name:'',location:'',phone:'',notes:''});
+  const sv=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <div className="modal-ov" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="modal-hdr"><span style={{fontWeight:700}}>{data?'Edit':'Add'} Store</span>
+          <button style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:18}} onClick={onClose}>✕</button></div>
+        <div className="modal-body">
+          <div className="field"><label className="lbl">Store Name</label><input className="inp" value={f.name} onChange={e=>sv('name',e.target.value)} placeholder="e.g. Main Branch, Airport Branch"/></div>
+          <div className="field"><label className="lbl">Location</label><input className="inp" value={f.location} onChange={e=>sv('location',e.target.value)} placeholder="e.g. Kumasi Central Market"/></div>
+          <div className="field"><label className="lbl">Phone</label><input className="inp" value={f.phone} onChange={e=>sv('phone',e.target.value)} placeholder="0244000000"/></div>
+          <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes} onChange={e=>sv('notes',e.target.value)} placeholder="Any notes…"/></div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={()=>f.name.trim()&&onSave(f)} disabled={!f.name.trim()}>Save Store</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ATTENDANTS MANAGER ─────────────────────────────────────────
+function VAttendants({stores,session,activeStore}){
+  const [atts,setAtts]=useState([]);
+  const [modal,setModal]=useState(null);
+  const [loaded,setLoaded]=useState(false);
+
+  useEffect(()=>{
+    getAttendants(session.username).then(list=>{setAtts(list);setLoaded(true);});
+  },[session.username]);
+
+  async function save(d){
+    const updated=d.id?atts.map(a=>a.id===d.id?d:a):[...atts,{...d,id:uid(),createdAt:Date.now(),active:true}];
+    setAtts(updated);
+    await saveAttendants(session.username,updated);
+    setModal(null);
+  }
+  async function toggle(id){
+    const updated=atts.map(a=>a.id===id?{...a,active:!a.active}:a);
+    setAtts(updated);
+    await saveAttendants(session.username,updated);
+  }
+  async function del(id){
+    if(!confirm('Remove attendant?'))return;
+    const updated=atts.filter(a=>a.id!==id);
+    setAtts(updated);
+    await saveAttendants(session.username,updated);
+  }
+
+  if(!loaded)return<div style={{textAlign:'center',padding:40}}><div className="spinner" style={{margin:'0 auto'}}/></div>;
+
+  return(
+    <div>
+      <div className="notice notice-blue" style={{fontSize:12,marginBottom:14}}>
+        👥 Attendants can log in with your username + their PIN to record sales. You see all their sales in real-time on your dashboard.
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+        <button className="btn" onClick={()=>setModal({data:null})}>+ Add Attendant</button>
+      </div>
+      {atts.length===0&&<div className="card empty-state"><div className="empty-ico">👤</div><div style={{fontSize:13,letterSpacing:2}}>NO ATTENDANTS YET</div><div style={{fontSize:12,marginTop:8,color:'var(--text3)'}}>Add shop attendants to let them record sales</div></div>}
+      {atts.map(a=>{
+        const store=stores.find(s=>s.id===a.storeId);
+        return(
+          <div key={a.id} className="card" style={{marginBottom:10,border:`1px solid ${a.active?'var(--border)':'var(--border2)'}`}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                  <span style={{fontWeight:800,fontSize:14}}>👤 {a.name}</span>
+                  <span className={`tag ${a.active?'tag-green':'tag-grey'}`}>{a.active?'ACTIVE':'INACTIVE'}</span>
+                </div>
+                <div style={{fontSize:12,color:'var(--text3)',marginBottom:2}}>📞 {a.phone||'—'}</div>
+                <div style={{fontSize:12,color:'var(--text3)',marginBottom:2}}>🏪 {store?.name||'No store assigned'}</div>
+                <div style={{fontSize:11,color:'var(--text3)',marginTop:6,background:'var(--bg3)',padding:'4px 8px',borderRadius:5,display:'inline-block'}}>
+                  PIN: <span style={{fontFamily:'var(--fd)',letterSpacing:3,color:'var(--accent)'}}>{'•'.repeat(4)}</span>
+                  <span style={{marginLeft:8,color:'var(--text2)',fontSize:9}}>Set when added</span>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:6,flexDirection:'column',alignItems:'flex-end'}}>
+                <button className="btn-sm" onClick={()=>setModal({data:a})}>Edit</button>
+                <button className="btn-sm" style={{color:a.active?'var(--amber)':'var(--green)',borderColor:a.active?'#f59e0b44':'#22c55e44'}} onClick={()=>toggle(a.id)}>{a.active?'Deactivate':'Activate'}</button>
+                <button className="btn-danger" onClick={()=>del(a.id)}>Remove</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {modal&&<AttendantModal data={modal.data} stores={stores} onSave={save} onClose={()=>setModal(null)}/>}
+    </div>
+  );
+}
+
+function AttendantModal({data,stores,onSave,onClose}){
+  const [f,setF]=useState(data||{name:'',phone:'',pin:'',storeId:'',notes:''});
+  const [showPin,setShowPin]=useState(false);
+  const sv=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  function handleSave(){
+    if(!f.name.trim()||!f.storeId)return;
+    const d={...f};
+    if(f.pin&&!data?.id){d.pin=hashStr2(f.pin);}
+    else if(f.pin&&data?.id&&f.pin!==data.pin){d.pin=hashStr2(f.pin);}
+    else if(data?.pin){d.pin=data.pin;}
+    onSave(d);
+  }
+
+  return(
+    <div className="modal-ov" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="modal-hdr"><span style={{fontWeight:700}}>{data?'Edit':'Add'} Attendant</span>
+          <button style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:18}} onClick={onClose}>✕</button></div>
+        <div className="modal-body">
+          <div className="field"><label className="lbl">Full Name</label><input className="inp" value={f.name} onChange={e=>sv('name',e.target.value)} placeholder="Attendant name"/></div>
+          <div className="field"><label className="lbl">Phone</label><input className="inp" value={f.phone||''} onChange={e=>sv('phone',e.target.value)} placeholder="0244000000"/></div>
+          <div className="field"><label className="lbl">Assign to Store</label>
+            <select className="sel" value={f.storeId} onChange={e=>sv('storeId',e.target.value)}>
+              <option value="">Select store…</option>
+              {stores.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label className="lbl">PIN {data?'(leave blank to keep current)':''}</label>
+            <div style={{position:'relative'}}>
+              <input className="inp" type={showPin?'text':'password'} inputMode="numeric" maxLength={6} value={f.pin||''} onChange={e=>sv('pin',e.target.value.replace(/\D/g,''))} placeholder={data?'Enter new PIN to change':'4-6 digit PIN'} style={{paddingRight:50}}/>
+              <button onClick={()=>setShowPin(p=>!p)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:13}}>{showPin?'Hide':'Show'}</button>
+            </div>
+          </div>
+          <div className="notice notice-warn" style={{fontSize:11}}>
+            Share the PIN with your attendant. They log in at: <strong>Store → Attendant Login</strong>
+          </div>
+          <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes||''} onChange={e=>sv('notes',e.target.value)} placeholder="Role, shift, etc."/></div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={handleSave} disabled={!f.name.trim()||!f.storeId||(!data&&!f.pin)}>Save Attendant</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────
+function VAdmin(){
+  const [users,setUsers]=useState({});
+  const [pending,setPending]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState('overview');
+  const [customDays,setCustomDays]=useState({});
+
+  useEffect(()=>{
+    async function load(){
+      const u=await getUsers();setUsers(u);
+      if(db)try{const snap=await db.collection('srp_pending').get();setPending(snap.docs.map(d=>({id:d.id,...d.data()})));}catch{}
+      setLoading(false);
+    }
+    load();
+  },[]);
+
+  if(loading)return<div style={{textAlign:'center',padding:40}}><div className="spinner" style={{margin:'0 auto 10px'}}/>Loading…</div>;
+
+  const allUsers=Object.keys(users).filter(u=>u!==DEV_U);
+  const paying=allUsers.filter(u=>{const s=subStatus(u);return s.active&&!s.trial;});
+  const trials=allUsers.filter(u=>{const s=subStatus(u);return s.trial;});
+  const revenue=paying.reduce((t,u)=>{const s=subStatus(u);return t+(PLANS[s.plan]?.price||0);},0);
+
+  async function activate(username,plan,days){
+    const paidUntil=Date.now()+days*86400000;
+    const sub={plan,paid:true,paidUntil,activatedAt:Date.now()};
+    setSub(username,sub);
+    if(db){try{await db.collection('srp_subscriptions').doc(username).set(sub);await db.collection('srp_pending').doc(username).delete();}catch{}}
+    setPending(p=>p.filter(x=>x.id!==username));
+    alert(`✅ ${username} activated`);
+  }
+  async function revoke(username){
+    if(!confirm(`Revoke ${username}?`))return;
+    setSub(username,{plan:null,paid:false,paidUntil:0,revoked:true});
+    alert(`Revoked`);
+  }
+
+  return(
+    <div>
+      <div className="rtabs">
+        {[['overview','Overview'],['users','Users'],['revenue','Revenue']].map(([id,l])=>(
+          <button key={id} className={`rtab${tab===id?' active':''}`} onClick={()=>setTab(id)}>{l}</button>
+        ))}
+      </div>
+      {tab==='overview'&&(
+        <div>
+          <div className="stats-grid">
+            <div className="stat-card"><div className="stat-label">Total Users</div><div className="stat-val">{allUsers.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Paying</div><div className="stat-val" style={{color:'var(--green)'}}>{paying.length}</div></div>
+            <div className="stat-card"><div className="stat-label">On Trial</div><div className="stat-val" style={{color:'var(--amber)'}}>{trials.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Monthly Rev</div><div className="stat-val" style={{fontSize:15,color:'var(--accent)'}}>{fmtMoney(revenue,'GH₵')}</div></div>
+          </div>
+          {pending.length>0&&(
+            <div className="card" style={{border:'1px solid var(--amber)'}}>
+              <div className="sec-title" style={{color:'var(--amber)'}}>⏳ Pending ({pending.length})</div>
+              {pending.map(p=>(
+                <div key={p.id} style={{padding:'10px 0',borderBottom:'1px solid var(--border2)'}}>
+                  <div style={{fontWeight:700,marginBottom:8}}>{p.username} — <span style={{color:'var(--accent)'}}>{PLANS[p.plan]?.label||p.plan}</span></div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'basic',30)}>Basic 30d</button>
+                    <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'standard',30)}>Standard 30d</button>
+                    <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'premium',30)}>Premium 30d</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {tab==='users'&&(
+        <div>
+          {allUsers.map(u=>{
+            const usr=users[u];const s=subStatus(u);const days=customDays[u]||30;
+            return(
+              <div key={u} className="card" style={{marginBottom:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,flexWrap:'wrap',gap:6}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:13}}>{usr?.business||u}</div>
+                    <div style={{fontSize:10,color:'var(--text3)'}}>@{u} · {usr?.currency||'GHS'}</div>
+                  </div>
+                  <span className={`tag ${s.active&&!s.trial?'tag-green':s.trial?'tag-amber':'tag-red'}`}>
+                    {s.active&&!s.trial?`ACTIVE · ${s.plan?.toUpperCase()}`:(s.trial?`TRIAL ${s.daysLeft}d`:'EXPIRED')}
+                  </span>
+                </div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <input type="number" value={days} onChange={e=>setCustomDays(c=>({...c,[u]:parseInt(e.target.value)||30}))} style={{width:55,padding:'4px 8px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:12}} min="1"/>
+                  <span style={{fontSize:10,color:'var(--text3)'}}>days</span>
+                  {['basic','standard','premium'].map(plan=>(
+                    <button key={plan} className="btn-sm" style={{fontSize:9}} onClick={()=>activate(u,plan,days)}>{plan.charAt(0).toUpperCase()+plan.slice(1)}</button>
+                  ))}
+                  <button className="btn-danger" style={{fontSize:9}} onClick={()=>revoke(u)}>Revoke</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {tab==='revenue'&&(
+        <div>
+          <div className="card">
+            <div className="sec-title">Revenue by Plan</div>
+            {Object.values(PLANS).map(plan=>{
+              const count=paying.filter(u=>subStatus(u).plan===plan.id).length;
+              return(
+                <div key={plan.id} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid var(--border2)'}}>
+                  <span style={{fontSize:13,color:'var(--text2)'}}>{plan.name} ({plan.label})</span>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontWeight:700,color:'var(--accent)',fontFamily:'var(--fd)',fontSize:13}}>{fmtMoney(count*plan.price,'GH₵')}</div>
+                    <div style={{fontSize:10,color:'var(--text3)'}}>{count} user{count!==1?'s':''}</div>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{display:'flex',justifyContent:'space-between',padding:'12px 0',fontWeight:800,fontSize:15}}>
+              <span>Total Monthly</span><span style={{color:'var(--accent)',fontFamily:'var(--fd)'}}>{fmtMoney(revenue,'GH₵')}</span>
+            </div>
+          </div>
+          <div className="card">
+            <div className="sec-title">Payment Numbers</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div style={{background:'#f59e0b22',border:'1px solid #f59e0b44',borderRadius:8,padding:12,textAlign:'center'}}>
+                <div style={{fontSize:8,letterSpacing:2,color:'var(--amber)',fontWeight:700,marginBottom:3}}>MTN MOMO</div>
+                <div style={{fontSize:15,fontWeight:800,color:'var(--amber)',fontFamily:'var(--fd)'}}>{OWNER.mtn}</div>
+              </div>
+              <div style={{background:'#ef444422',border:'1px solid #ef444444',borderRadius:8,padding:12,textAlign:'center'}}>
+                <div style={{fontSize:8,letterSpacing:2,color:'var(--red)',fontWeight:700,marginBottom:3}}>TELECEL</div>
+                <div style={{fontSize:15,fontWeight:800,color:'var(--red)',fontFamily:'var(--fd)'}}>{OWNER.telecel}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────
+function Dashboard({session,onLogout}){
+  const [view,setView]=useState('dashboard');
+  const [stores,setStores]=useState([]);
+  const [products,setProducts]=useState([]);
+  const [sales,setSales]=useState([]);
+  const [activeStore,setActiveStore]=useState(null);
+  const [syncState,setSyncState]=useState('saved');
+  const [loaded,setLoaded]=useState(false);
+  const [storeModal,setStoreModal]=useState(false);
+  const saveTimer=useRef(null);
+  const u=session.username;
+
+  useEffect(()=>{
+    async function init(){
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);setLoaded(true);return;}}catch{}
+      const local=lsGet(`srp-data-${u}`);
+      if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
+      setLoaded(true);
+    }
+    init();
+  },[u]);
+
+  useEffect(()=>{
+    if(!db||!loaded)return;
+    const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{if(snap.exists&&!snap.metadata.hasPendingWrites){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);}},()=>{});
+    return unsub;
+  },[u,loaded]);
+
+  function doSave(st,pr,sa){
+    clearTimeout(saveTimer.current);setSyncState('saving');
+    saveTimer.current=setTimeout(async()=>{await saveData(u,{stores:st,products:pr,sales:sa,updatedAt:Date.now()});setSyncState('saved');},1000);
+  }
+  function setS(fn){setStores(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(n,products,sales);if(n.length>0&&!activeStore)setActiveStore(n[0].id);return n;});}
+  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(stores,n,sales);return n;});}
+  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(stores,products,n);return n;});}
+
+  const NAV=[
+    {id:'dashboard',label:'Dashboard',ico:'📊'},
+    {id:'sell',label:'New Sale',ico:'🛒'},
+    {id:'products',label:'Products',ico:'📦'},
+    {id:'history',label:'Sales',ico:'🧾'},
+    {id:'reports',label:'Reports',ico:'📈'},
+    {id:'stores',label:'Stores',ico:'🏪'},
+    {id:'attendants',label:'Attendants',ico:'👤'},
+    ...(session.isDev?[{id:'admin',label:'Admin',ico:'⚙️'}]:[]),
+  ];
+
+  const sc={saving:'var(--amber)',saved:'var(--green)',error:'var(--red)'}[syncState]||'var(--text3)';
+
+  function handleAddStore(){setStoreModal(true);setView('stores');}
+
+  if(!loaded)return<div className="loading"><div className="spinner"/><div style={{fontSize:10,letterSpacing:3,color:'var(--text3)'}}>LOADING DATA…</div></div>;
+
+  // First time — prompt to add store
+  if(stores.length===0&&loaded){
+    return(
+      <div className="auth-wrap">
+        <div style={{width:'100%',maxWidth:400,textAlign:'center'}} className="fade-in">
+          <div style={{fontSize:50,marginBottom:12}}>🏪</div>
+          <div style={{fontSize:20,fontWeight:800,marginBottom:8}}>Welcome to StorePOS!</div>
+          <div style={{fontSize:13,color:'var(--text3)',marginBottom:24}}>Add your first store to get started. You can add multiple store locations.</div>
+          <StoreModal data={null} onSave={d=>{setS(ss=>[...ss,{...d,id:uid(),createdAt:Date.now()}]);}} onClose={()=>{}}/>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div className="app">
+      <div className="sidebar">
+        <div className="sb-logo">
+          <div style={{fontSize:28,marginBottom:6}}>📦</div>
+          <div className="sb-logo-main">StorePOS</div>
+          <div className="sb-logo-sub">{session.business}</div>
+        </div>
+        {stores.length>0&&(
+          <div style={{padding:'8px 8px 0'}}>
+            <StoreSelector stores={stores} activeStore={activeStore} setActiveStore={setActiveStore} onAdd={handleAddStore}/>
+          </div>
+        )}
+        <div className="sb-nav">
+          {NAV.map(n=>(
+            <button key={n.id} className={`sb-item${view===n.id?' active':''}`} onClick={()=>setView(n.id)}>
+              <span style={{fontSize:16}}>{n.ico}</span>{n.label}
+              {session.isDev&&n.id==='admin'&&<span className="dev-pill">DEV</span>}
+            </button>
+          ))}
+        </div>
+        <div style={{marginTop:'auto',padding:'12px 8px',borderTop:'1px solid var(--border)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',marginBottom:4}}>
+            <div style={{width:7,height:7,borderRadius:'50%',background:sc}}/>
+            <span style={{fontSize:11,color:'var(--text3)'}}>{syncState==='saving'?'Saving…':'Saved'}</span>
+            <span style={{marginLeft:'auto',fontSize:10,color:'var(--text3)'}}>{getSym(session.currency)}</span>
+          </div>
+          <button className="sb-item" style={{color:'var(--red)'}} onClick={onLogout}>
+            <span style={{fontSize:16}}>🚪</span>Sign Out
+          </button>
+        </div>
+      </div>
+
+      <div className="main">
+        <div className="topbar">
+          <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
+            <span style={{fontSize:20}}>{NAV.find(n=>n.id===view)?.ico}</span>
+            <div style={{minWidth:0}}>
+              <div style={{fontWeight:800,fontSize:12,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{NAV.find(n=>n.id===view)?.label}</div>
+              <div style={{fontSize:10,color:'var(--text3)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{stores.find(s=>s.id===activeStore)?.name||session.business}</div>
+            </div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+            {stores.length>1&&(
+              <div style={{maxWidth:130}}>
+                <StoreSelector stores={stores} activeStore={activeStore} setActiveStore={setActiveStore} onAdd={handleAddStore}/>
+              </div>
+            )}
+            <div style={{width:7,height:7,borderRadius:'50%',background:sc}}/>
+            <button className="hide-mob" style={{background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:12,fontFamily:'var(--fm)',fontWeight:600}} onClick={onLogout}>Sign Out</button>
+          </div>
+        </div>
+        <div className="content">
+          <div className="fade-in">
+            {view==='dashboard'&&<VDash stores={stores} products={products} sales={sales} session={session} setView={setView} activeStore={activeStore}/>}
+            {view==='sell'&&<VSell products={products} setSales={setSa} setProducts={setP} session={session} activeStore={activeStore} stores={stores}/>}
+            {view==='products'&&<VProducts stores={stores} products={products} setProducts={setP} session={session} activeStore={activeStore}/>}
+            {view==='history'&&<VSalesHistory sales={sales} products={products} session={session} setSales={setSa} activeStore={activeStore} stores={stores}/>}
+            {view==='reports'&&<VReports sales={sales} products={products} session={session} activeStore={activeStore}/>}
+            {view==='stores'&&<VStores stores={stores} setStores={setS} products={products} sales={sales} session={session}/>}
+            {view==='attendants'&&<VAttendants stores={stores} session={session} activeStore={activeStore}/>}
+            {view==='admin'&&session.isDev&&<VAdmin/>}
+          </div>
+        </div>
+      </div>
+
+      <MobileNav NAV={NAV} view={view} setView={setView} onLogout={onLogout} session={session} syncState={syncState}/>
+    </div>
+  );
+}
+
+// ── APP ────────────────────────────────────────────────────────
+function App(){
+  const [session,setSession]=useState(null);
+  const [ready,setReady]=useState(false);
+
+  const [mode,setMode]=useState('owner'); // 'owner' | 'attendant'
+  const [attSession,setAttSession]=useState(null);
+
+  useEffect(()=>{
+    const users=lsGet('srp-users')||{};
+    users[DEV_U]={hash:hashStr(DEV_P),business:'AMIN MOTORS & TRANSPORT',currency:'GHS',isDev:true,created:0};
+    lsSet('srp-users',users);
+    const s=lsGet('srp-session');
+    if(s?.username)setSession(s);
+    const as=getAttendantSession();
+    if(as?.username&&as?.isAttendant)setAttSession(as);
+    setReady(true);
+  },[]);
+
+  function login(s){setSession(s);lsSet('srp-session',s);if(!s.isDev&&!getSub(s.username))startTrial(s.username);}
+  function logout(){setSession(null);lsSet('srp-session',null);window.location.reload();}
+  function attLogin(s){setAttSession(s);setAttendantSession(s);}
+  function attLogout(){setAttSession(null);clearAttendantSession();window.location.reload();}
+
+  if(!ready)return<div className="loading"><div className="spinner"/></div>;
+
+  // Attendant mode
+  if(mode==='attendant'||attSession?.isAttendant){
+    if(!attSession)return<AttendantLogin onLogin={attLogin}/>;
+    return<AttendantDashboard session={attSession} onLogout={attLogout}/>;
+  }
+
+  // Owner mode
+  if(!session){
+    return(
+      <div>
+        <Auth onLogin={login}/>
+        <div style={{position:'fixed',bottom:20,left:0,right:0,textAlign:'center'}}>
+          <button onClick={()=>setMode('attendant')} style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,color:'var(--text2)',padding:'10px 20px',cursor:'pointer',fontFamily:'var(--fm)',fontSize:12,fontWeight:600}}>
+            👤 Attendant Login →
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const status=subStatus(session.username);
+  if(!status.active)return<SubWall username={session.username} onActivated={()=>setSession({...lsGet('srp-session')})} />;
+  return<Dashboard session={session} onLogout={logout}/>;
+}
+
+ReactDOM.render(<App/>,document.getElementById('root'));
+</script>
+</body>
+</html>
