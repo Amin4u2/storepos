@@ -2016,8 +2016,8 @@ function VCustomers({customers, setCustomers, sales, stores, session, activeStor
   const sym = getSym(session.currency);
 
   function save(d){
-    setCustomers(cc=>d.id?cc.map(c=>c.id===d.id?d:c):[...cc,{...d,id:uid(),storeId:activeStore,createdAt:Date.now()}]);
-    setModal(null);
+    setModal(null); // close immediately
+    setCu(cc=>d.id?cc.map(c=>c.id===d.id?d:c):[...cc,{...d,id:uid(),storeId:activeStore,createdAt:Date.now()}]);
   }
   function del(id){if(!confirm('Delete customer?'))return;setCustomers(cc=>cc.filter(c=>c.id!==id));}
 
@@ -2213,7 +2213,7 @@ function CustomerModal({data, onSave, onClose}){
         </div>
         <div className="modal-foot">
           <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={()=>f.name.trim()&&onSave(f)} disabled={!f.name.trim()}>Save Customer</button>
+          <button className="btn" onClick={()=>{if(f.name.trim()&&!saving){setSaving(true);onSave(f);}}} disabled={!f.name.trim()}>Save Customer</button>
         </div>
       </div>
     </div>
@@ -2234,8 +2234,8 @@ function VAttendants({stores,session,activeStore}){
   async function save(d){
     const updated=d.id?atts.map(a=>a.id===d.id?d:a):[...atts,{...d,id:uid(),createdAt:Date.now(),active:true}];
     setAtts(updated);
-    await saveAttendants(session.username,updated);
-    setModal(null);
+    setModal(null); // close immediately — don't wait for Firestore
+    try{await saveAttendants(session.username,updated);}catch(e){console.warn('Save attendant error:',e);}
   }
   async function toggle(id){
     const updated=atts.map(a=>a.id===id?{...a,active:!a.active}:a);
@@ -2296,13 +2296,15 @@ function AttendantModal({data,stores,onSave,onClose}){
   const [showPin,setShowPin]=useState(false);
   const sv=(k,v)=>setF(p=>({...p,[k]:v}));
 
+  const [saving,setSaving]=useState(false);
   function handleSave(){
-    if(!f.name.trim()||!f.storeId)return;
+    if(!f.name.trim()||!f.storeId||saving)return;
+    setSaving(true);
     const d={...f};
     if(f.pin&&!data?.id){d.pin=hashStr2(f.pin);}
     else if(f.pin&&data?.id&&f.pin!==data.pin){d.pin=hashStr2(f.pin);}
     else if(data?.pin){d.pin=data.pin;}
-    onSave(d);
+    onSave(d); // parent closes modal
   }
 
   return(
@@ -2333,7 +2335,7 @@ function AttendantModal({data,stores,onSave,onClose}){
         </div>
         <div className="modal-foot">
           <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={handleSave} disabled={!f.name.trim()||!f.storeId||(!data&&!f.pin)}>Save Attendant</button>
+          <button className="btn" onClick={handleSave} disabled={!f.name.trim()||!f.storeId||(!data&&!f.pin)||saving}>{saving?'Saving…':'Save Attendant'}</button>
         </div>
       </div>
     </div>
