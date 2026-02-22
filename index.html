@@ -125,11 +125,11 @@ input,select,button,textarea{font-family:var(--fm);}
 
 /* ── Modal ────────────────────────────────────────────────── */
 .modal-ov{position:fixed;inset:0;background:#000000cc;z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;overscroll-behavior:contain;}
-.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
-.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2);z-index:1;}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);background:var(--bg2);z-index:1;flex-shrink:0;}
 .modal-hdr span{font-size:15px;font-weight:800;}
-.modal-body{padding:20px;}
-.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--bg2);}
+.modal-body{padding:20px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;flex:1;}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
 
 /* ── Plan card ────────────────────────────────────────────── */
 .plan-card{cursor:pointer;background:var(--bg);border:2px solid var(--border);border-radius:10px;padding:16px 12px;text-align:center;transition:all .2s;touch-action:manipulation;}
@@ -178,10 +178,11 @@ input,select,button,textarea{font-family:var(--fm);}
   .sidebar{display:none;}
   .bottom-nav{display:block;}
 
-  /* Content clears bottom nav + safe area — generous so last button never hidden */
+  /* Content — CRITICAL: enough space so last item is never under nav bar */
   .content{
     padding:12px 12px;
-    padding-bottom:calc(var(--nh) + env(safe-area-inset-bottom,0px) + 80px);
+    padding-bottom:calc(var(--nh) + env(safe-area-inset-bottom,0px) + 100px) !important;
+    overscroll-behavior-y:auto;
   }
 
   /* Topbar */
@@ -212,13 +213,15 @@ input,select,button,textarea{font-family:var(--fm);}
   .modal-ov{padding:0;align-items:flex-end;}
   .modal-box{
     max-width:100%;
-    max-height:92dvh;
+    max-height:94dvh;
     border-radius:20px 20px 0 0;
     border-bottom:none;
+    display:flex;
+    flex-direction:column;
   }
-  .modal-hdr{padding:16px 16px 12px;border-radius:20px 20px 0 0;}
-  .modal-body{padding:16px;}
-  .modal-foot{padding:12px 16px;gap:8px;}
+  .modal-hdr{padding:16px 16px 12px;border-radius:20px 20px 0 0;flex-shrink:0;}
+  .modal-body{padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;}
+  .modal-foot{padding:14px 16px;gap:8px;flex-shrink:0;}
   .modal-foot .btn,
   .modal-foot .btn-outline{flex:1;justify-content:center;padding:14px;}
 
@@ -1434,19 +1437,26 @@ function VSell({products,setSales,setProducts,session,activeStore,stores,custome
 // ── SALES HISTORY ──────────────────────────────────────────────
 function VSalesHistory({sales,products,session,setSales,activeStore,stores,customers}){
   const [search,setSearch]=useState('');
-  const [dateFilter,setDateFilter]=useState('all');
+  const [dateFilter,setDateFilter]=useState('month');
+  const [selMonth,setSelMonth]=useState(new Date().getMonth());
+  const [selYear,setSelYear]=useState(new Date().getFullYear());
   const [invoiceModal,setInvoiceModal]=useState(null);
   const sym=getSym(session.currency);
 
   const now=new Date();
+  // Build year list from all sales
+  const saleYears=[...new Set(sales.filter(s=>s.storeId===activeStore).map(s=>new Date(s.date||s.createdAt).getFullYear()))];
+  if(!saleYears.includes(now.getFullYear()))saleYears.push(now.getFullYear());
+  saleYears.sort((a,b)=>b-a);
+
   const list=sales.filter(s=>{
     if(s.storeId!==activeStore)return false;
-    if(search&&!s.customer?.toLowerCase().includes(search.toLowerCase()))return false;
+    if(search&&!s.customer?.toLowerCase().includes(search.toLowerCase())&&!s.items?.some(i=>i.name?.toLowerCase().includes(search.toLowerCase())))return false;
     if(dateFilter==='today'&&s.date!==today())return false;
     if(dateFilter==='week'){const d=new Date(s.date);const w=new Date();w.setDate(w.getDate()-7);if(d<w)return false;}
-    if(dateFilter==='month'){const d=new Date(s.date);if(d.getMonth()!==now.getMonth()||d.getFullYear()!==now.getFullYear())return false;}
+    if(dateFilter==='month'){const d=new Date(s.date||s.createdAt);if(d.getMonth()!==selMonth||d.getFullYear()!==selYear)return false;}
     return true;
-  }).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  }).sort((a,b)=>new Date(b.createdAt||b.date)-new Date(a.createdAt||a.date));
 
   const totalRev=list.reduce((t,s)=>t+s.total,0);
   const totalProfit=list.reduce((t,s)=>t+s.profit,0);
@@ -1469,10 +1479,20 @@ function VSalesHistory({sales,products,session,setSales,activeStore,stores,custo
         <div className="stat-card"><div className="stat-label">Profit</div><div className="stat-val" style={{fontSize:16,color:'var(--green)'}}>{fmtMoney(totalProfit,sym)}</div></div>
       </div>
       <div className="rtabs">
-        {[['all','All Time'],['today','Today'],['week','This Week'],['month','This Month']].map(([id,l])=>(
+        {[['all','All'],['today','Today'],['week','Week'],['month','Month']].map(([id,l])=>(
           <button key={id} className={`rtab${dateFilter===id?' active':''}`} onClick={()=>setDateFilter(id)}>{l}</button>
         ))}
       </div>
+      {dateFilter==='month'&&(
+        <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center'}}>
+          <select className="sel" style={{flex:2}} value={selMonth} onChange={e=>setSelMonth(parseInt(e.target.value))}>
+            {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+          </select>
+          <select className="sel" style={{flex:1}} value={selYear} onChange={e=>setSelYear(parseInt(e.target.value))}>
+            {saleYears.map(y=><option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      )}
       <div className="search-wrap">
         <span className="search-ico">🔍</span>
         <input className="inp search-inp" placeholder="Search customer…" value={search} onChange={e=>setSearch(e.target.value)}/>
@@ -1525,16 +1545,26 @@ function VReports({sales,products,session,activeStore}){
   const totalStockValue=storeProds.reduce((t,p)=>t+(p.buyPrice*p.stock),0);
   const totalRetailValue=storeProds.reduce((t,p)=>t+(p.sellPrice*p.stock),0);
 
+  // year list from all sales
+  const allYears=[...new Set([new Date().getFullYear().toString(),...storeSales.map(s=>new Date(s.date||s.createdAt).getFullYear().toString())])].sort().reverse();
+
   return(
     <div>
       <div className="card" style={{marginBottom:14}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <label className="lbl" style={{margin:0}}>Year</label>
-          <select className="sel" style={{width:'auto',minWidth:90}} value={yr} onChange={e=>setYr(e.target.value)}>
-            {[...new Set([new Date().getFullYear().toString(),...storeSales.map(s=>new Date(s.date).getFullYear().toString())])].sort().reverse().map(y=><option key={y}>{y}</option>)}
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <label className="lbl" style={{margin:0,flexShrink:0}}>📅 Year</label>
+          <select className="sel" style={{flex:1,minWidth:80}} value={yr} onChange={e=>setYr(e.target.value)}>
+            {allYears.map(y=><option key={y}>{y}</option>)}
           </select>
-          <span style={{marginLeft:'auto',fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:15}}>{fmtMoney(yRev,sym)}</span>
+          <div style={{fontFamily:'var(--fd)',fontWeight:700,color:'var(--accent)',fontSize:14,flexShrink:0}}>{fmtMoney(yRev,sym)}</div>
         </div>
+        {allYears.length>1&&(
+          <div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap'}}>
+            {allYears.map(y=>(
+              <button key={y} onClick={()=>setYr(y)} style={{padding:'4px 12px',borderRadius:20,border:`1px solid ${yr===y?'var(--accent)':'var(--border)'}`,background:yr===y?'#f9731622':'transparent',color:yr===y?'var(--accent)':'var(--text3)',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'var(--fm)',minHeight:32}}>{y}</button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="stats-grid">
         <div className="stat-card"><div className="stat-label">Year Revenue</div><div className="stat-val" style={{fontSize:15,color:'var(--accent)'}}>{fmtMoney(yRev,sym)}</div></div>
@@ -1543,9 +1573,14 @@ function VReports({sales,products,session,activeStore}){
         <div className="stat-card"><div className="stat-label">Retail Value</div><div className="stat-val" style={{fontSize:15}}>{fmtMoney(totalRetailValue,sym)}</div><div className="stat-sub">if all sold</div></div>
       </div>
       <div className="card" style={{marginBottom:14}}>
-        <div className="sec-title">Monthly Revenue — {yr}</div>
-        {monthly.map(({m,rev,profit,count})=>(
-          <div key={m} style={{marginBottom:10}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+          <div className="sec-title" style={{margin:0}}>Monthly Revenue — {yr}</div>
+        </div>
+        {monthly.map(({m,rev,profit,count},mi)=>(
+          <div key={m} style={{marginBottom:10,cursor:'pointer',borderRadius:6,padding:'2px 0'}} onClick={()=>{
+            const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            alert(m+' '+yr+'\n\nRevenue: '+fmtMoney(rev,sym)+'\nProfit: '+fmtMoney(profit,sym)+'\nTransactions: '+count);
+          }}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
               <span style={{fontSize:12,color:'var(--text2)',minWidth:32}}>{m}</span>
               <span style={{fontSize:11,color:'var(--text3)'}}>{count} sales</span>
@@ -1603,6 +1638,42 @@ function VReports({sales,products,session,activeStore}){
             );
           })
         }
+      </div>
+
+      {/* Month detail breakdown */}
+      <div className="card" style={{marginBottom:14}}>
+        <div className="sec-title">📋 Month-by-Month Breakdown — {yr}</div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead>
+              <tr style={{borderBottom:'2px solid var(--border)'}}>
+                {['Month','Sales','Revenue','Profit','Margin'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:9,letterSpacing:2,color:'var(--text3)',fontWeight:700,whiteSpace:'nowrap'}}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {monthly.map(({m,rev,profit,count})=>{
+                const margin=rev>0?((profit/rev)*100).toFixed(1):0;
+                const isCurrentMonth=m===MONTHS[new Date().getMonth()]&&yr===new Date().getFullYear().toString();
+                return(
+                  <tr key={m} style={{borderBottom:'1px solid var(--border2)',background:isCurrentMonth?'#f9731608':'transparent'}}>
+                    <td style={{padding:'8px',fontWeight:isCurrentMonth?700:400,color:isCurrentMonth?'var(--accent)':'var(--text)'}}>{m}{isCurrentMonth?' ●':''}</td>
+                    <td style={{padding:'8px',fontFamily:'var(--fd)',color:count>0?'var(--text)':'var(--text3)'}}>{count}</td>
+                    <td style={{padding:'8px',fontFamily:'var(--fd)',color:'var(--accent)',fontWeight:600}}>{rev>0?fmtMoney(rev,sym):'—'}</td>
+                    <td style={{padding:'8px',fontFamily:'var(--fd)',color:'var(--green)'}}>{profit>0?fmtMoney(profit,sym):'—'}</td>
+                    <td style={{padding:'8px',color:parseFloat(margin)>20?'var(--green)':parseFloat(margin)>0?'var(--amber)':'var(--text3)'}}>{rev>0?margin+'%':'—'}</td>
+                  </tr>
+                );
+              })}
+              <tr style={{borderTop:'2px solid var(--border)',fontWeight:800}}>
+                <td style={{padding:'10px 8px',color:'var(--text)'}}>TOTAL</td>
+                <td style={{padding:'10px 8px',fontFamily:'var(--fd)'}}>{ySales.length}</td>
+                <td style={{padding:'10px 8px',fontFamily:'var(--fd)',color:'var(--accent)'}}>{fmtMoney(yRev,sym)}</td>
+                <td style={{padding:'10px 8px',fontFamily:'var(--fd)',color:'var(--green)'}}>{fmtMoney(yProfit,sym)}</td>
+                <td style={{padding:'10px 8px',color:'var(--text)'}}>{yRev>0?((yProfit/yRev)*100).toFixed(1)+'%':'—'}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="card" style={{marginBottom:14}}>
