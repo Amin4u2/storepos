@@ -254,6 +254,17 @@ const CURRENCIES=[
 ];
 const CATEGORIES=['All','Food & Drinks','Electronics','Clothing & Fashion','Health & Beauty','Household','Stationery','Spare Parts','Cosmetics','Pharmacy','Agriculture','Building Materials','Other'];
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const VEHICLE_TYPES=['Car','Truck','Bus','Motorbike','Tractor','Generator','Boat','Other'];
+const REMINDER_CYCLES=[
+  {days:7,label:'Every week'},
+  {days:14,label:'Every 2 weeks'},
+  {days:30,label:'Monthly'},
+  {days:45,label:'Every 45 days'},
+  {days:60,label:'Every 2 months'},
+  {days:90,label:'Every 3 months'},
+  {days:180,label:'Every 6 months'},
+  {days:365,label:'Yearly'},
+];
 const ROLES={owner:'owner',attendant:'attendant'};
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -265,6 +276,11 @@ const hashStr=s=>{let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCo
 const fmtDate=d=>{if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GH',{day:'numeric',month:'short',year:'numeric'});}catch{return d;}};
 const fmtMoney=(n,sym='GH₵')=>`${sym}${Number(n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const getSym=cur=>CURRENCIES.find(c=>c.code===cur)?.symbol||cur;
+
+// ── Customer helpers ──────────────────────────────────────────
+const fmtDaysFromNow=d=>{const diff=Math.ceil((new Date(d)-new Date())/86400000);if(diff<0)return`${Math.abs(diff)}d overdue`;if(diff===0)return'Due today';return`Due in ${diff}d`;};
+const isDue=d=>new Date(d)<=new Date(new Date().setDate(new Date().getDate()+7));
+const isOverdue=d=>new Date(d)<new Date();
 
 // ── Sub helpers ────────────────────────────────────────────────
 // ── Attendant helpers ─────────────────────────────────────────
@@ -544,16 +560,42 @@ function Auth({onLogin}){
 function SubWall({username,onActivated}){
   const [sel,setSel]=useState('standard');
   const [step,setStep]=useState('plans');
+  const [txnId,setTxnId]=useState('');
+  const [payNetwork,setPayNetwork]=useState('MTN MoMo');
+  const [payApp,setPayApp]=useState('StorePOS');
+  const [submitted,setSubmitted]=useState(false);
   const plan=PLANS[sel];
 
   function doTrial(){startTrial(username);onActivated();}
-  function doPay(){
-    const p={username,plan:sel,amount:plan.price,requestedAt:Date.now()};
+  function doPay(){setStep('pay');}
+
+  async function submitPayment(){
+    if(!txnId.trim())return;
+    const p={
+      username,plan:sel,amount:plan.price,
+      appName:payApp,txnId:txnId.trim(),network:payNetwork,
+      requestedAt:Date.now(),
+      requestedAtStr:new Date().toLocaleString('en-GH'),
+      status:'pending'
+    };
     lsSet(`srp-pending-${username}`,p);
-    if(db)db.collection('srp_pending').doc(username).set(p).catch(()=>{});
-    setStep('pay');
+    if(db)try{await db.collection('srp_pending').doc(username).set(p);}catch{}
+    const msg=`🔔 NEW PAYMENT REFERENCE
+
+App: ${payApp}
+User: ${username}
+Plan: ${plan.name} (${plan.label})
+Network: ${payNetwork}
+Transaction ID: ${txnId.trim()}
+Date: ${new Date().toLocaleString('en-GH')}
+
+Please verify and activate.`;
+    const wa=`https://wa.me/${OWNER.mtn.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
+    window.open(wa,'_blank');
+    setSubmitted(true);
   }
-  function check(){const s=subStatus(username);if(s.active)onActivated();else alert('Not yet activated. Send your MoMo reference on WhatsApp.');}
+
+  function check(){const s=subStatus(username);if(s.active)onActivated();else alert('Not yet activated. Please wait for confirmation after WhatsApp message.');}
 
   return(
     <div className="auth-wrap">
@@ -582,35 +624,100 @@ function SubWall({username,onActivated}){
             </div>
           </>
         )}
-        {step==='pay'&&(
+        {step==='pay'&&submitted&&(
+          <div style={{textAlign:'center',padding:'20px 0'}}>
+            <div style={{fontSize:50,marginBottom:12}}>📤</div>
+            <div style={{fontSize:18,fontWeight:800,color:'var(--green)',marginBottom:8}}>Reference Submitted!</div>
+            <div className="notice notice-ok" style={{textAlign:'left',marginBottom:16}}>
+              <div style={{fontWeight:700,marginBottom:6}}>Payment Summary</div>
+              <div style={{fontSize:12}}>App: <strong>{payApp}</strong></div>
+              <div style={{fontSize:12}}>Plan: <strong>{plan.name} — {plan.label}</strong></div>
+              <div style={{fontSize:12}}>Network: <strong>{payNetwork}</strong></div>
+              <div style={{fontSize:12}}>TXN ID: <strong style={{fontFamily:'var(--fd)'}}>{txnId}</strong></div>
+              <div style={{fontSize:12}}>Username: <strong>{username}</strong></div>
+            </div>
+            <div style={{fontSize:12,color:'var(--text3)',marginBottom:20,lineHeight:1.7}}>
+              A WhatsApp message has been sent to the owner. Your account will be activated within minutes after verification. You will see a green checkmark when active.
+            </div>
+            <button className="btn" style={{width:'100%',padding:14,justifyContent:'center',marginBottom:10}} onClick={check}>🔄 Check Activation Status</button>
+            <button className="btn-outline" style={{width:'100%',padding:12,justifyContent:'center'}} onClick={()=>{setSubmitted(false);setTxnId('');setStep('plans');}}>← Change Plan</button>
+          </div>
+        )}
+        {step==='pay'&&!submitted&&(
           <div>
-            <div className="card" style={{border:'1px solid var(--accent)'}}>
+            <div className="card" style={{border:'1px solid var(--accent)',marginBottom:12}}>
               <div className="sec-title" style={{color:'var(--accent)'}}>Payment Instructions</div>
               <div style={{background:'var(--bg3)',borderRadius:8,padding:14,textAlign:'center',marginBottom:14}}>
                 <div style={{fontSize:28,fontWeight:800,color:'var(--accent)',fontFamily:'var(--fd)'}}>{plan.label.replace('/mo','')}</div>
                 <div style={{fontSize:11,color:'var(--text3)',marginTop:3}}>{plan.name} · 30 days</div>
               </div>
-              {['Open MTN or Telecel MoMo app',`Send ${plan.label.replace('/mo','')} to number below`,'Copy transaction reference/ID',`WhatsApp reference + username "${username}" to owner`,"Tap 'I've Paid' — activated within minutes"].map((s,i)=>(
+              {[
+                'Open MTN or Telecel MoMo app',
+                `Send ${plan.label.replace('/mo','')} to the number below`,
+                'Copy your Transaction ID/Reference from MoMo',
+                'Paste it in the field below and submit',
+                'We activate your account within minutes after confirmation'
+              ].map((s,i)=>(
                 <div key={i} style={{display:'flex',gap:10,marginBottom:10,alignItems:'flex-start'}}>
-                  <div style={{width:20,height:20,borderRadius:'50%',background:'var(--accent)',color:'#0a0a0f',fontSize:10,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{i+1}</div>
-                  <div style={{fontSize:12,color:'var(--text2)',paddingTop:2,lineHeight:1.6}}>{s}</div>
+                  <div style={{width:22,height:22,borderRadius:'50%',background:'var(--accent)',color:'#0a0a0f',fontSize:10,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{i+1}</div>
+                  <div style={{fontSize:12,color:'var(--text2)',paddingTop:3,lineHeight:1.6}}>{s}</div>
                 </div>
               ))}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10,marginBottom:14}}>
                 <div style={{background:'#f59e0b22',border:'1px solid #f59e0b44',borderRadius:8,padding:12,textAlign:'center'}}>
                   <div style={{fontSize:8,letterSpacing:2,color:'var(--amber)',fontWeight:700,marginBottom:3}}>MTN MOMO</div>
-                  <div style={{fontSize:15,fontWeight:800,color:'var(--amber)',fontFamily:'var(--fd)'}}>{OWNER.mtn}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:'var(--amber)',fontFamily:'var(--fd)'}}>{OWNER.mtn}</div>
                 </div>
                 <div style={{background:'#ef444422',border:'1px solid #ef444444',borderRadius:8,padding:12,textAlign:'center'}}>
                   <div style={{fontSize:8,letterSpacing:2,color:'var(--red)',fontWeight:700,marginBottom:3}}>TELECEL</div>
-                  <div style={{fontSize:15,fontWeight:800,color:'var(--red)',fontFamily:'var(--fd)'}}>{OWNER.telecel}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:'var(--red)',fontFamily:'var(--fd)'}}>{OWNER.telecel}</div>
+                </div>
+              </div>
+
+              {/* Transaction reference form */}
+              <div style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:10,padding:14}}>
+                <div style={{fontSize:10,letterSpacing:2,color:'var(--accent)',fontWeight:700,marginBottom:12}}>📋 SUBMIT YOUR PAYMENT REFERENCE</div>
+                <div className="field">
+                  <label className="lbl">App You Are Paying For</label>
+                  <select className="sel" value={payApp} onChange={e=>setPayApp(e.target.value)}>
+                    <option value="StorePOS">StorePOS — Shop Inventory & Sales</option>
+                    <option value="RentLedger">RentLedger — Landlord Rent Manager</option>
+                    <option value="FleetSales">FleetSales — Transport Manager</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label className="lbl">Your MoMo Transaction ID / Reference</label>
+                  <input className="inp" value={txnId} onChange={e=>setTxnId(e.target.value)} placeholder="e.g. 1234567890 or ABCD1234" style={{fontFamily:'var(--fd)',letterSpacing:1}}/>
+                  <div style={{fontSize:10,color:'var(--text3)',marginTop:4}}>Copy from your MoMo SMS or app notification</div>
+                </div>
+                <div className="field" style={{marginBottom:0}}>
+                  <label className="lbl">Network Used</label>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                    {['MTN MoMo','Telecel'].map(n=>(
+                      <button key={n} onClick={()=>setPayNetwork(n)} style={{padding:'10px',border:`2px solid ${payNetwork===n?'var(--accent)':'var(--border)'}`,borderRadius:8,background:payNetwork===n?'#f9731618':'var(--bg)',color:payNetwork===n?'var(--accent)':'var(--text2)',fontFamily:'var(--fm)',fontWeight:700,cursor:'pointer',fontSize:12}}>
+                        {n==='MTN MoMo'?'📶 MTN MoMo':'📱 Telecel'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-            <button className="btn" style={{width:'100%',padding:14,justifyContent:'center',marginBottom:10}} onClick={check}>✓ I've Paid — Check Activation</button>
-            <button className="btn-outline" style={{width:'100%',padding:12,justifyContent:'center'}} onClick={()=>setStep('plans')}>← Back</button>
+
+            {txnId.trim()&&(
+              <div className="notice notice-ok" style={{marginBottom:12}}>
+                <div style={{fontWeight:700,marginBottom:4}}>✅ Ready to Submit</div>
+                <div style={{fontSize:11}}>App: <strong>{payApp}</strong> · TXN: <strong style={{fontFamily:'var(--fd)'}}>{txnId}</strong> · via <strong>{payNetwork}</strong></div>
+                <div style={{fontSize:11,marginTop:2}}>Username: <strong>{username}</strong> · Plan: <strong>{plan.name}</strong></div>
+              </div>
+            )}
+
+            <button className="btn" style={{width:'100%',padding:14,justifyContent:'center',marginBottom:10,fontSize:14}} onClick={submitPayment} disabled={!txnId.trim()}>
+              📤 Submit Payment Reference
+            </button>
+            <button className="btn-outline" style={{width:'100%',padding:12,justifyContent:'center'}} onClick={()=>setStep('plans')}>← Back to Plans</button>
           </div>
         )}
+
       </div>
     </div>
   );
@@ -688,7 +795,7 @@ function StoreSelector({stores,activeStore,setActiveStore,onAdd}){
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────
-function VDash({stores,products,sales,session,setView,activeStore}){
+function VDash({stores,products,sales,customers,session,setView,activeStore}){
   const sym=getSym(session.currency);
   const storeProd=products.filter(p=>p.storeId===activeStore);
   const storeSales=sales.filter(s=>s.storeId===activeStore);
@@ -742,6 +849,15 @@ function VDash({stores,products,sales,session,setView,activeStore}){
       </div>
 
       {/* Quick sell button */}
+      {(()=>{
+        const due=customers.filter(c=>c.storeId===activeStore&&(c.reminders||[]).some(r=>isDue(r.nextDate)||isOverdue(r.nextDate)));
+        if(due.length===0)return null;
+        return<div className="notice notice-warn" style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+          <span>🔔</span>
+          <span style={{flex:1}}><strong>{due.length}</strong> customer{due.length!==1?'s':''} due for follow-up</span>
+          <button className="btn-sm" style={{fontSize:10,color:'var(--amber)',borderColor:'#f59e0b44'}} onClick={()=>setView('customers')}>View →</button>
+        </div>;
+      })()}
       <button className="btn" style={{width:'100%',justifyContent:'center',padding:14,fontSize:14,marginBottom:14}} onClick={()=>setView('sell')}>
         🛒 New Sale
       </button>
@@ -985,7 +1101,7 @@ function ProductModal({data,onSave,onClose,sym}){
 }
 
 // ── SELL ───────────────────────────────────────────────────────
-function VSell({products,setSales,setProducts,session,activeStore,stores}){
+function VSell({products,setSales,setProducts,session,activeStore,stores,customers}){
   const [cart,setCart]=useState([]);
   const [search,setSearch]=useState('');
   const [customer,setCustomer]=useState('');
@@ -1014,10 +1130,11 @@ function VSell({products,setSales,setProducts,session,activeStore,stores}){
 
   function completeSale(){
     if(cart.length===0)return;
+    const matchCust=customers?.find(c=>c.name?.toLowerCase()===customer?.toLowerCase()&&c.storeId===activeStore);
     const sale={
       id:uid(),storeId:activeStore,
       items:cart.map(i=>({id:i.id,name:i.name,qty:i.qty,sellPrice:i.sellPrice,buyPrice:i.buyPrice,unit:i.unit})),
-      total,profit,customer,payMethod,date:today(),createdAt:Date.now()
+      total,profit,customer,customerId:matchCust?.id||null,payMethod,date:today(),createdAt:Date.now()
     };
     setSales(ss=>[...ss,sale]);
     setProducts(pp=>pp.map(p=>{
@@ -1092,7 +1209,10 @@ function VSell({products,setSales,setProducts,session,activeStore,stores}){
             </div>
             <div style={{fontSize:11,color:'var(--green)',textAlign:'right',marginBottom:12}}>Profit: +{fmtMoney(profit,sym)}</div>
             <div className="form-grid" style={{marginBottom:10}}>
-              <div><label className="lbl">Customer (opt.)</label><input className="inp" value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Customer name"/></div>
+              <div><label className="lbl">Customer</label>
+                <input className="inp" list="cust-list" value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Type or select customer"/>
+                <datalist id="cust-list">{(customers||[]).filter(c=>c.storeId===activeStore).map(c=><option key={c.id} value={c.name}>{c.name} — {c.phone}</option>)}</datalist>
+              </div>
               <div><label className="lbl">Payment</label>
                 <select className="sel" value={payMethod} onChange={e=>setPayMethod(e.target.value)}>
                   {['Cash','MoMo','Card','Credit','Bank Transfer'].map(m=><option key={m}>{m}</option>)}
@@ -1133,9 +1253,10 @@ function VSell({products,setSales,setProducts,session,activeStore,stores}){
 }
 
 // ── SALES HISTORY ──────────────────────────────────────────────
-function VSalesHistory({sales,products,session,setSales,activeStore,stores}){
+function VSalesHistory({sales,products,session,setSales,activeStore,stores,customers}){
   const [search,setSearch]=useState('');
   const [dateFilter,setDateFilter]=useState('all');
+  const [invoiceModal,setInvoiceModal]=useState(null);
   const sym=getSym(session.currency);
 
   const now=new Date();
@@ -1192,14 +1313,16 @@ function VSalesHistory({sales,products,session,setSales,activeStore,stores}){
             <div style={{textAlign:'right',flexShrink:0}}>
               <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:15,color:'var(--accent)',marginBottom:3}}>{fmtMoney(s.total,sym)}</div>
               <div style={{fontSize:10,color:'var(--green)',marginBottom:8}}>+{fmtMoney(s.profit,sym)}</div>
-              <div style={{display:'flex',gap:5,justifyContent:'flex-end'}}>
-                <button className="btn-sm" style={{fontSize:9}} onClick={()=>shareReceipt(s)}>📤</button>
+              <div style={{display:'flex',gap:5,justifyContent:'flex-end',flexWrap:'wrap'}}>
+                <button className="btn-sm" style={{fontSize:9}} onClick={()=>shareReceipt(s)}>📤 Share</button>
+                <button className="btn-blue" style={{fontSize:9}} onClick={()=>setInvoiceModal(s)}>📄 Invoice</button>
                 <button className="btn-danger" style={{fontSize:9}} onClick={()=>delSale(s.id)}>🗑</button>
               </div>
             </div>
           </div>
         </div>
       ))}
+      {invoiceModal&&<InvoiceModal sale={invoiceModal} customers={customers||[]} stores={stores} session={session} onClose={()=>setInvoiceModal(null)}/>}
     </div>
   );
 }
@@ -1395,6 +1518,459 @@ function StoreModal({data,onSave,onClose}){
   );
 }
 
+
+// ── CUSTOMER COMPONENTS ────────────────────────────────────────
+
+// Invoice/Receipt Generator
+function generateInvoiceHTML(sale, customer, store, sym, type='receipt'){
+  const isInvoice = type==='invoice';
+  const items = sale.items||[];
+  const subtotal = items.reduce((t,i)=>t+i.sellPrice*i.qty, 0);
+  const total = subtotal;
+  const invNum = 'INV-' + (sale.id?.slice(-8).toUpperCase()||'000000');
+  const recNum = 'REC-' + (sale.id?.slice(-8).toUpperCase()||'000000');
+  const docDate = new Date(sale.createdAt||Date.now());
+  const dueDateStr = new Date(docDate.getTime()+7*86400000).toLocaleDateString('en-GH',{day:'numeric',month:'long',year:'numeric'});
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>${isInvoice?invNum:recNum}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Inter',Arial,sans-serif;background:#f0f0f0;padding:30px 16px;color:#1a1a2e;}
+    .page{background:#fff;max-width:680px;margin:0 auto;border-radius:4px;overflow:hidden;box-shadow:0 4px 40px rgba(0,0,0,.12);}
+    /* Header band */
+    .hdr-band{background:linear-gradient(135deg,#0f0f23 0%,#1a1a3e 60%,#f97316 100%);padding:36px 40px 30px;position:relative;overflow:hidden;}
+    .hdr-band::before{content:'';position:absolute;top:-40px;right:-40px;width:200px;height:200px;background:rgba(249,115,22,.15);border-radius:50%;}
+    .hdr-band::after{content:'';position:absolute;bottom:-60px;right:60px;width:140px;height:140px;background:rgba(249,115,22,.08);border-radius:50%;}
+    .hdr-top{display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:1;}
+    .logo-block{}
+    .logo-icon{font-size:36px;display:block;margin-bottom:6px;}
+    .logo-name{font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;}
+    .logo-tagline{font-size:10px;color:rgba(255,255,255,.5);letter-spacing:3px;text-transform:uppercase;margin-top:2px;}
+    .doc-label{text-align:right;}
+    .doc-type-name{font-size:32px;font-weight:800;color:#f97316;letter-spacing:-1px;line-height:1;}
+    .doc-number{font-size:13px;color:rgba(255,255,255,.6);font-family:monospace;margin-top:4px;}
+    .status-badge{display:inline-block;margin-top:8px;padding:4px 14px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;${isInvoice?'background:rgba(99,102,241,.3);color:#a5b4fc;border:1px solid rgba(99,102,241,.5)':'background:rgba(34,197,94,.3);color:#86efac;border:1px solid rgba(34,197,94,.5)'};}
+    .hdr-divider{height:1px;background:rgba(255,255,255,.1);margin:24px 0;position:relative;z-index:1;}
+    .hdr-meta{display:flex;justify-content:space-between;position:relative;z-index:1;flex-wrap:wrap;gap:12px;}
+    .hdr-meta-item{}
+    .hdr-meta-label{font-size:9px;color:rgba(255,255,255,.4);letter-spacing:2px;text-transform:uppercase;margin-bottom:3px;}
+    .hdr-meta-val{font-size:12px;color:rgba(255,255,255,.85);font-weight:500;}
+    /* Body */
+    .body{padding:32px 40px;}
+    /* Bill to / From */
+    .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px;padding-bottom:24px;border-bottom:1px solid #eee;}
+    .party-box{}
+    .party-label{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:#f97316;font-weight:700;margin-bottom:10px;}
+    .party-name{font-size:16px;font-weight:700;color:#1a1a2e;margin-bottom:4px;}
+    .party-detail{font-size:12px;color:#666;line-height:1.7;}
+    /* Vehicle */
+    .vehicle-band{background:#fff8f3;border:1px solid #fed7aa;border-radius:6px;padding:12px 16px;margin-bottom:24px;display:flex;align-items:center;gap:12px;}
+    .vehicle-ico{font-size:24px;}
+    .vehicle-detail{font-size:12px;color:#92400e;line-height:1.6;}
+    .vehicle-detail strong{color:#c2410c;font-size:13px;}
+    /* Table */
+    .tbl-wrap{margin-bottom:24px;}
+    .tbl-hdr{display:grid;grid-template-columns:3fr 1fr 1.2fr 1.2fr;gap:0;background:#f8f8f8;border-radius:4px 4px 0 0;padding:10px 16px;}
+    .tbl-hdr span{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#999;font-weight:700;}
+    .tbl-hdr .r{text-align:right;}
+    .tbl-row{display:grid;grid-template-columns:3fr 1fr 1.2fr 1.2fr;gap:0;padding:12px 16px;border-bottom:1px solid #f0f0f0;align-items:center;}
+    .tbl-row:last-child{border-bottom:none;}
+    .tbl-row:hover{background:#fafafa;}
+    .item-name{font-size:13px;font-weight:600;color:#1a1a2e;}
+    .item-unit{font-size:10px;color:#aaa;margin-top:1px;}
+    .tbl-row .qty{font-size:13px;color:#555;}
+    .tbl-row .price{font-size:13px;color:#555;text-align:right;}
+    .tbl-row .amount{font-size:13px;font-weight:700;color:#1a1a2e;text-align:right;}
+    .tbl-border{border:1px solid #eee;border-radius:4px;overflow:hidden;}
+    /* Totals */
+    .totals{display:flex;justify-content:flex-end;margin-bottom:28px;}
+    .totals-box{width:260px;}
+    .tot-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#666;border-bottom:1px solid #f5f5f5;}
+    .tot-final{display:flex;justify-content:space-between;padding:14px 16px;background:linear-gradient(135deg,#f97316,#ea580c);border-radius:6px;margin-top:10px;}
+    .tot-final span{font-size:16px;font-weight:800;color:#fff;}
+    /* Payment method */
+    .pay-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:20px;font-size:11px;color:#15803d;font-weight:600;margin-bottom:24px;}
+    /* Notes */
+    .notes-box{background:#f8f8f8;border-radius:6px;padding:14px;margin-bottom:24px;font-size:12px;color:#555;line-height:1.6;}
+    /* Footer */
+    .footer-band{background:#f8f8f8;border-top:1px solid #eee;padding:20px 40px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+    .footer-brand{font-size:12px;font-weight:700;color:#aaa;}
+    .footer-msg{font-size:11px;color:#aaa;text-align:right;}
+    .watermark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-size:80px;font-weight:900;color:${isInvoice?'rgba(99,102,241,.04)':'rgba(34,197,94,.04)'};pointer-events:none;white-space:nowrap;letter-spacing:10px;}
+    @media print{
+      body{background:white;padding:0;}
+      .page{box-shadow:none;border-radius:0;max-width:100%;}
+      .print-btn{display:none!important;}
+    }
+  </style></head><body>
+  <div style="max-width:680px;margin:0 auto 16px;text-align:right;">
+    <button class="print-btn" onclick="window.print()" style="padding:10px 24px;background:#f97316;color:white;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;margin-right:8px;">🖨️ Print / Save PDF</button>
+  </div>
+  <div class="page" style="position:relative;">
+    <div class="watermark">${isInvoice?'INVOICE':'PAID'}</div>
+    <!-- Header -->
+    <div class="hdr-band">
+      <div class="hdr-top">
+        <div class="logo-block">
+          <span class="logo-icon">🏪</span>
+          <div class="logo-name">${store?.name||'StorePOS'}</div>
+          <div class="logo-tagline">Point of Sale System</div>
+        </div>
+        <div class="doc-label">
+          <div class="doc-type-name">${isInvoice?'INVOICE':'RECEIPT'}</div>
+          <div class="doc-number">${isInvoice?invNum:recNum}</div>
+          <span class="status-badge">${isInvoice?'INVOICE':'PAID'}</span>
+        </div>
+      </div>
+      <div class="hdr-divider"></div>
+      <div class="hdr-meta">
+        <div class="hdr-meta-item"><div class="hdr-meta-label">Date Issued</div><div class="hdr-meta-val">${docDate.toLocaleDateString('en-GH',{day:'numeric',month:'long',year:'numeric'})}</div></div>
+        <div class="hdr-meta-item"><div class="hdr-meta-label">Time</div><div class="hdr-meta-val">${docDate.toLocaleTimeString('en-GH',{hour:'2-digit',minute:'2-digit'})}</div></div>
+        ${isInvoice?`<div class="hdr-meta-item"><div class="hdr-meta-label">Due Date</div><div class="hdr-meta-val">${dueDateStr}</div></div>`:''}
+        <div class="hdr-meta-item"><div class="hdr-meta-label">Served By</div><div class="hdr-meta-val">${sale.attendantName||'Owner'}</div></div>
+      </div>
+    </div>
+    <!-- Body -->
+    <div class="body">
+      <div class="parties">
+        <div class="party-box">
+          <div class="party-label">${isInvoice?'Bill To':'Customer'}</div>
+          <div class="party-name">${customer?.name||sale.customer||'Walk-in Customer'}</div>
+          <div class="party-detail">
+            ${customer?.phone?`📞 ${customer.phone}<br/>`:''}
+            ${customer?.email?`✉️ ${customer.email}<br/>`:''}
+            ${customer?.address?`📍 ${customer.address}<br/>`:''}
+          </div>
+        </div>
+        <div class="party-box">
+          <div class="party-label">From</div>
+          <div class="party-name">${store?.name||'Our Store'}</div>
+          <div class="party-detail">
+            ${store?.location?`📍 ${store.location}<br/>`:''}
+            ${store?.phone?`📞 ${store.phone}<br/>`:''}
+          </div>
+        </div>
+      </div>
+      ${customer?.vehicle?`<div class="vehicle-band"><div class="vehicle-ico">🚗</div><div class="vehicle-detail"><strong>${customer.vehicle}${customer.vehicleType?` (${customer.vehicleType})`:''}</strong><br/>${customer.plateNumber?`Plate: ${customer.plateNumber}`:''}</div></div>`:''}
+      <div class="tbl-wrap">
+        <div class="tbl-border">
+          <div class="tbl-hdr"><span>Description</span><span>Qty</span><span class="r">Unit Price</span><span class="r">Total</span></div>
+          ${items.map((i,idx)=>`<div class="tbl-row" style="background:${idx%2===0?'#fff':'#fafafa'}">
+            <div><div class="item-name">${i.name}</div>${i.unit?`<div class="item-unit">${i.unit}</div>`:''}</div>
+            <div class="qty">${i.qty}</div>
+            <div class="price">${sym}${Number(i.sellPrice).toFixed(2)}</div>
+            <div class="amount">${sym}${(i.sellPrice*i.qty).toFixed(2)}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div class="totals">
+        <div class="totals-box">
+          <div class="tot-row"><span>Subtotal</span><span>${sym}${subtotal.toFixed(2)}</span></div>
+          <div class="tot-row"><span>Tax (0%)</span><span>${sym}0.00</span></div>
+          <div class="tot-final"><span>TOTAL DUE</span><span>${sym}${total.toFixed(2)}</span></div>
+        </div>
+      </div>
+      <div><span class="pay-badge">✅ Payment: ${sale.payMethod||'Cash'}</span></div>
+      <div class="notes-box">Thank you for your business! We appreciate your continued patronage and look forward to serving you again.${store?.name?`<br/><strong>${store.name}</strong>`:''}</div>
+    </div>
+    <div class="footer-band">
+      <div class="footer-brand">🏪 Powered by StorePOS</div>
+      <div class="footer-msg">${isInvoice?invNum:recNum} · ${docDate.toLocaleDateString()}</div>
+    </div>
+  </div>
+  </body></html>`;
+}
+
+function printOrShare(html, filename){
+  const win = window.open('','_blank');
+  if(!win){alert('Allow popups to print/view document.');return;}
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>win.print(), 500);
+}
+
+// ── INVOICE MODAL ──────────────────────────────────────────────
+function InvoiceModal({sale, customers, stores, session, onClose}){
+  const [type, setType] = useState('receipt');
+  const sym = getSym(session.currency);
+  const customer = customers.find(c=>c.id===sale.customerId)||null;
+  const store = stores.find(s=>s.id===sale.storeId)||null;
+  const html = generateInvoiceHTML(sale, customer, store, sym, type);
+
+  function share(){
+    const text = `🧾 ${type==='invoice'?'Invoice':'Receipt'} from ${store?.name||'StorePOS'}\n` +
+      `Amount: ${sym}${sale.total?.toFixed(2)}\n` +
+      `Date: ${new Date(sale.createdAt||Date.now()).toLocaleDateString()}\n` +
+      `Ref: #${sale.id?.slice(-8).toUpperCase()}\n` +
+      `Items: ${sale.items?.map(i=>`${i.name} x${i.qty}`).join(', ')}`;
+    if(navigator.share) navigator.share({title:'StorePOS Document', text});
+    else navigator.clipboard.writeText(text).then(()=>alert('Copied to clipboard!'));
+  }
+
+  return(
+    <div className="modal-ov" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:540}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-hdr">
+          <span style={{fontWeight:700}}>📄 Document</span>
+          <button style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:18}} onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            {[['receipt','🧾 Receipt'],['invoice','📋 Invoice']].map(([t,l])=>(
+              <button key={t} onClick={()=>setType(t)} style={{flex:1,padding:'10px',border:`2px solid ${type===t?'var(--accent)':'var(--border)'}`,borderRadius:8,background:type===t?'#f9731618':'var(--bg)',color:type===t?'var(--accent)':'var(--text2)',fontFamily:'var(--fm)',fontWeight:700,cursor:'pointer',fontSize:13}}>{l}</button>
+            ))}
+          </div>
+          <div style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:16,marginBottom:16}}>
+            <div style={{fontSize:12,color:'var(--text3)',marginBottom:8}}>Preview</div>
+            <div style={{fontSize:13,color:'var(--text2)'}}>
+              <div style={{fontWeight:700,fontSize:15,color:'var(--text)',marginBottom:4}}>{type==='invoice'?'INVOICE':'RECEIPT'} #{sale.id?.slice(-8).toUpperCase()}</div>
+              <div>Customer: <strong>{customer?.name||sale.customer||'Walk-in'}</strong></div>
+              <div>Amount: <strong style={{color:'var(--accent)'}}>{sym}{sale.total?.toFixed(2)}</strong></div>
+              <div>Items: {sale.items?.length||0} item(s)</div>
+              <div>Payment: {sale.payMethod||'Cash'}</div>
+            </div>
+          </div>
+          <div className="notice notice-blue" style={{fontSize:11}}>
+            Clicking Print will open the full formatted {type} in a new window ready to print or save as PDF. Use Share to send via WhatsApp or SMS.
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn-outline" onClick={share}>📤 Share</button>
+          <button className="btn" onClick={()=>printOrShare(html, `${type}-${sale.id?.slice(-8)}`)}>🖨️ Print / PDF</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── REMINDER MESSAGE BUILDER ────────────────────────────────────
+function buildReminderMsg(customer, product, store, daysOverdue){
+  const greeting = `Hello ${customer.name}!`;
+  const overdue = daysOverdue > 0;
+  return `${greeting}\n\nThis is a reminder from ${store?.name||'our store'}.\n\n` +
+    `${overdue ? `Your ${product.name} service is ${daysOverdue} day(s) overdue.` : `Your ${product.name} is due for replacement/service soon.`}\n\n` +
+    `Based on your vehicle${customer.vehicle?` (${customer.vehicle})`:''}, we recommend changing your ${product.name} every ${product.reminderDays} days.\n\n` +
+    `📞 Call us: ${store?.phone||''}\n` +
+    `📍 ${store?.location||'Visit our store'}\n\n` +
+    `Reply to this message to book an appointment.\nThank you! 🙏`;
+}
+
+// ── CUSTOMERS VIEW ─────────────────────────────────────────────
+function VCustomers({customers, setCustomers, sales, stores, session, activeStore, setView}){
+  const [modal, setModal] = useState(null);
+  const [search, setSearch] = useState('');
+  const [tab, setTab] = useState('all');
+  const sym = getSym(session.currency);
+
+  function save(d){
+    setCustomers(cc=>d.id?cc.map(c=>c.id===d.id?d:c):[...cc,{...d,id:uid(),storeId:activeStore,createdAt:Date.now()}]);
+    setModal(null);
+  }
+  function del(id){if(!confirm('Delete customer?'))return;setCustomers(cc=>cc.filter(c=>c.id!==id));}
+
+  const storeCusts = customers.filter(c=>c.storeId===activeStore);
+  const dueCusts = storeCusts.filter(c=>{
+    const reminders = c.reminders||[];
+    return reminders.some(r=>isDue(r.nextDate)||isOverdue(r.nextDate));
+  });
+
+  const list = (tab==='due'?dueCusts:storeCusts).filter(c=>
+    !search || c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.phone?.includes(search) || c.vehicle?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  function getCustSales(custId){return sales.filter(s=>s.customerId===custId);}
+  function getCustTotal(custId){return getCustSales(custId).reduce((t,s)=>t+s.total,0);}
+
+  return(
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,gap:8}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:700}}>{storeCusts.length} customers</div>
+          {dueCusts.length>0&&<div style={{fontSize:11,color:'var(--amber)'}}>⚠️ {dueCusts.length} due for follow-up</div>}
+        </div>
+        <button className="btn" onClick={()=>setModal({data:null})}>+ Add Customer</button>
+      </div>
+
+      <div className="rtabs">
+        <button className={`rtab${tab==='all'?' active':''}`} onClick={()=>setTab('all')}>All ({storeCusts.length})</button>
+        <button className={`rtab${tab==='due'?' active':''}`} onClick={()=>setTab('due')} style={dueCusts.length>0?{borderColor:'var(--amber)',color:tab==='due'?'#0a0a0f':'var(--amber)',background:tab==='due'?'var(--amber)':'transparent'}:{}}>
+          🔔 Due ({dueCusts.length})
+        </button>
+      </div>
+
+      <div className="search-wrap">
+        <span className="search-ico">🔍</span>
+        <input className="inp search-inp" placeholder="Search name, phone, vehicle…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+
+      {list.length===0&&<div className="card empty-state"><div className="empty-ico">👥</div><div style={{fontSize:13,letterSpacing:2}}>NO CUSTOMERS YET</div><div style={{fontSize:12,marginTop:8,color:'var(--text3)'}}>Add customers to track purchases and send reminders</div></div>}
+
+      {list.map(c=>{
+        const custSales = getCustSales(c.id);
+        const total = getCustTotal(c.id);
+        const reminders = c.reminders||[];
+        const dueReminders = reminders.filter(r=>isDue(r.nextDate)||isOverdue(r.nextDate));
+        const store = stores.find(s=>s.id===activeStore);
+
+        return(
+          <div key={c.id} className="card" style={{marginBottom:10,border:dueReminders.length>0?'1px solid #f59e0b44':'1px solid var(--border)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3}}>
+                  <span style={{fontWeight:800,fontSize:15}}>👤 {c.name}</span>
+                  {dueReminders.length>0&&<span className="tag tag-amber">🔔 {dueReminders.length} DUE</span>}
+                </div>
+                {c.phone&&<div style={{fontSize:12,color:'var(--text3)',marginBottom:1}}>📞 {c.phone}</div>}
+                {c.email&&<div style={{fontSize:12,color:'var(--text3)',marginBottom:1}}>✉️ {c.email}</div>}
+                {c.vehicle&&<div style={{fontSize:12,color:'var(--accent)',marginBottom:1}}>🚗 {c.vehicle} {c.vehicleType?`(${c.vehicleType})`:''} {c.plateNumber?`| ${c.plateNumber}`:''}</div>}
+                <div style={{display:'flex',gap:12,fontSize:11,color:'var(--text2)',marginTop:6}}>
+                  <span>🧾 {custSales.length} purchases</span>
+                  <span style={{color:'var(--accent)',fontFamily:'var(--fd)',fontWeight:700}}>{fmtMoney(total,sym)}</span>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:5,flexDirection:'column',alignItems:'flex-end'}}>
+                <button className="btn-sm" onClick={()=>setModal({data:c})}>Edit</button>
+                <button className="btn-danger" style={{fontSize:9}} onClick={()=>del(c.id)}>Del</button>
+              </div>
+            </div>
+
+            {/* Due reminders */}
+            {dueReminders.length>0&&(
+              <div style={{background:'#f59e0b11',border:'1px solid #f59e0b33',borderRadius:8,padding:10,marginBottom:10}}>
+                <div style={{fontSize:10,fontWeight:700,color:'var(--amber)',letterSpacing:1,marginBottom:6}}>🔔 REMINDERS DUE</div>
+                {dueReminders.map((r,i)=>{
+                  const daysOver = Math.ceil((new Date()-new Date(r.nextDate))/86400000);
+                  const msg = buildReminderMsg(c, r, store, Math.max(0,daysOver));
+                  const wa = `https://wa.me/${c.phone?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
+                  return(
+                    <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}}>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:700}}>{r.name}</div>
+                        <div style={{fontSize:10,color:isOverdue(r.nextDate)?'var(--red)':'var(--amber)'}}>{fmtDaysFromNow(r.nextDate)}</div>
+                      </div>
+                      <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                        {c.phone&&<a href={wa} target="_blank" rel="noreferrer" style={{padding:'5px 10px',background:'#22c55e22',border:'1px solid #22c55e44',borderRadius:5,color:'var(--green)',fontSize:10,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:4}}>💬 WhatsApp</a>}
+                        {c.phone&&<a href={`tel:${c.phone}`} style={{padding:'5px 10px',background:'#6366f122',border:'1px solid #6366f144',borderRadius:5,color:'var(--blue)',fontSize:10,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:4}}>📞 Call</a>}
+                        <button onClick={()=>{navigator.clipboard.writeText(msg).then(()=>alert('Message copied!'));}} style={{padding:'5px 10px',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text2)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)',fontWeight:700}}>📋 Copy</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* All reminders */}
+            {reminders.filter(r=>!isDue(r.nextDate)&&!isOverdue(r.nextDate)).length>0&&(
+              <div style={{borderTop:'1px solid var(--border2)',paddingTop:8}}>
+                {reminders.filter(r=>!isDue(r.nextDate)&&!isOverdue(r.nextDate)).map((r,i)=>(
+                  <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:11,padding:'3px 0',color:'var(--text3)'}}>
+                    <span>🔔 {r.name}</span>
+                    <span style={{color:'var(--green)'}}>{fmtDaysFromNow(r.nextDate)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {modal&&<CustomerModal data={modal.data} onSave={save} onClose={()=>setModal(null)}/>}
+    </div>
+  );
+}
+
+// ── CUSTOMER MODAL ─────────────────────────────────────────────
+function CustomerModal({data, onSave, onClose}){
+  const [f, setF] = useState(data||{name:'',phone:'',email:'',address:'',vehicle:'',vehicleType:'',plateNumber:'',notes:'',reminders:[]});
+  const [reminderForm, setReminderForm] = useState({name:'',days:14});
+  const sv = (k,v)=>setF(p=>({...p,[k]:v}));
+
+  function addReminder(){
+    if(!reminderForm.name.trim())return;
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate()+parseInt(reminderForm.days));
+    const r = {name:reminderForm.name,days:parseInt(reminderForm.days),nextDate:nextDate.toISOString().slice(0,10)};
+    setF(p=>({...p,reminders:[...(p.reminders||[]),r]}));
+    setReminderForm({name:'',days:14});
+  }
+  function removeReminder(i){setF(p=>({...p,reminders:p.reminders.filter((_,idx)=>idx!==i)}));}
+  function snoozeReminder(i,days){
+    setF(p=>{
+      const rs=[...(p.reminders||[])];
+      const next=new Date();next.setDate(next.getDate()+days);
+      rs[i]={...rs[i],nextDate:next.toISOString().slice(0,10)};
+      return{...p,reminders:rs};
+    });
+  }
+
+  return(
+    <div className="modal-ov" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="modal-hdr"><span style={{fontWeight:700}}>{data?'Edit':'Add'} Customer</span>
+          <button style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:18}} onClick={onClose}>✕</button></div>
+        <div className="modal-body">
+          <div style={{fontSize:10,letterSpacing:2,color:'var(--accent)',marginBottom:12,fontWeight:700}}>PERSONAL INFO</div>
+          <div className="field"><label className="lbl">Full Name *</label><input className="inp" value={f.name} onChange={e=>sv('name',e.target.value)} placeholder="Customer name"/></div>
+          <div className="form-grid">
+            <div className="field"><label className="lbl">Phone</label><input className="inp" value={f.phone||''} onChange={e=>sv('phone',e.target.value)} placeholder="0244000000" type="tel"/></div>
+            <div className="field"><label className="lbl">Email</label><input className="inp" value={f.email||''} onChange={e=>sv('email',e.target.value)} placeholder="email@example.com" type="email"/></div>
+          </div>
+          <div className="field"><label className="lbl">Address</label><input className="inp" value={f.address||''} onChange={e=>sv('address',e.target.value)} placeholder="Home or work address"/></div>
+
+          <div style={{fontSize:10,letterSpacing:2,color:'var(--accent)',marginBottom:12,marginTop:4,fontWeight:700}}>VEHICLE INFO (Optional)</div>
+          <div className="form-grid">
+            <div className="field"><label className="lbl">Vehicle / Model</label><input className="inp" value={f.vehicle||''} onChange={e=>sv('vehicle',e.target.value)} placeholder="e.g. Toyota Corolla"/></div>
+            <div className="field"><label className="lbl">Type</label>
+              <select className="sel" value={f.vehicleType||''} onChange={e=>sv('vehicleType',e.target.value)}>
+                <option value="">Select…</option>
+                {VEHICLE_TYPES.map(t=><option key={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="field"><label className="lbl">Plate Number</label><input className="inp" value={f.plateNumber||''} onChange={e=>sv('plateNumber',e.target.value.toUpperCase())} placeholder="GR-1234-22"/></div>
+
+          <div style={{fontSize:10,letterSpacing:2,color:'var(--accent)',marginBottom:12,marginTop:4,fontWeight:700}}>🔔 PRODUCT REMINDERS</div>
+          <div className="notice notice-blue" style={{fontSize:11,marginBottom:12}}>Set reminders for products this customer needs regularly (e.g. Engine Oil every 14 days)</div>
+
+          {(f.reminders||[]).map((r,i)=>(
+            <div key={i} style={{display:'flex',gap:8,alignItems:'center',background:'var(--bg3)',borderRadius:8,padding:10,marginBottom:8,flexWrap:'wrap'}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:13}}>{r.name}</div>
+                <div style={{fontSize:11,color:'var(--text3)'}}>Every {r.days} days · Next: {fmtDate(r.nextDate)}</div>
+              </div>
+              <div style={{display:'flex',gap:5}}>
+                <button onClick={()=>snoozeReminder(i,r.days)} style={{padding:'4px 8px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--amber)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)'}}>Reset</button>
+                <button onClick={()=>removeReminder(i)} style={{padding:'4px 8px',background:'none',border:'1px solid #ef444444',borderRadius:5,color:'var(--red)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)'}}>✕</button>
+              </div>
+            </div>
+          ))}
+
+          <div style={{background:'var(--bg)',border:'1px dashed var(--border)',borderRadius:8,padding:12,marginBottom:12}}>
+            <div style={{fontSize:11,color:'var(--text3)',marginBottom:8,fontWeight:700}}>+ Add Reminder</div>
+            <div className="form-grid" style={{marginBottom:8}}>
+              <input className="inp" value={reminderForm.name} onChange={e=>setReminderForm(p=>({...p,name:e.target.value}))} placeholder="Product (e.g. Engine Oil)"/>
+              <select className="sel" value={reminderForm.days} onChange={e=>setReminderForm(p=>({...p,days:e.target.value}))}>
+                {REMINDER_CYCLES.map(r=><option key={r.days} value={r.days}>{r.label}</option>)}
+              </select>
+            </div>
+            <button className="btn-outline" style={{width:'100%',justifyContent:'center'}} onClick={addReminder} disabled={!reminderForm.name.trim()}>+ Add Reminder</button>
+          </div>
+
+          <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes||''} onChange={e=>sv('notes',e.target.value)} placeholder="Any notes…"/></div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={()=>f.name.trim()&&onSave(f)} disabled={!f.name.trim()}>Save Customer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ── ATTENDANTS MANAGER ─────────────────────────────────────────
 function VAttendants({stores,session,activeStore}){
   const [atts,setAtts]=useState([]);
@@ -1573,10 +2149,23 @@ function VAdmin(){
               {pending.map(p=>(
                 <div key={p.id} style={{padding:'10px 0',borderBottom:'1px solid var(--border2)'}}>
                   <div style={{fontWeight:700,marginBottom:8}}>{p.username} — <span style={{color:'var(--accent)'}}>{PLANS[p.plan]?.label||p.plan}</span></div>
+                  <div style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:11,marginBottom:8}}>
+                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>APP</div><div style={{fontWeight:700,color:'var(--accent)'}}>{p.appName||'Not specified'}</div></div>
+                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>NETWORK</div><div style={{fontWeight:700}}>{p.network||'—'}</div></div>
+                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>AMOUNT</div><div style={{fontWeight:700,color:'var(--green)'}}>GH₵{((p.amount||0)/100).toFixed(2)}</div></div>
+                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>DATE</div><div style={{fontWeight:600,fontSize:10}}>{p.requestedAtStr||new Date(p.requestedAt).toLocaleDateString()}</div></div>
+                    </div>
+                    <div style={{padding:'8px 10px',background:'var(--bg2)',borderRadius:6,border:'1px solid #f59e0b44'}}>
+                      <div style={{fontSize:9,color:'var(--amber)',letterSpacing:2,marginBottom:3,fontWeight:700}}>🔑 TRANSACTION ID</div>
+                      <div style={{fontFamily:'var(--fd)',fontSize:15,fontWeight:700,color:'var(--amber)',letterSpacing:1}}>{p.txnId||<span style={{color:'var(--text3)',fontFamily:'var(--fm)',fontWeight:400,fontSize:11}}>Not provided</span>}</div>
+                    </div>
+                  </div>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                     <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'basic',30)}>Basic 30d</button>
                     <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'standard',30)}>Standard 30d</button>
                     <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'premium',30)}>Premium 30d</button>
+                    <button className="btn-danger" style={{fontSize:9,marginLeft:'auto'}} onClick={()=>{if(db)try{db.collection('srp_pending').doc(p.id).delete();}catch{}setPending(pp=>pp.filter(x=>x.id!==p.id));}}>✕ Reject</button>
                   </div>
                 </div>
               ))}
@@ -1657,6 +2246,7 @@ function Dashboard({session,onLogout}){
   const [stores,setStores]=useState([]);
   const [products,setProducts]=useState([]);
   const [sales,setSales]=useState([]);
+  const [customers,setCustomers]=useState([]);
   const [activeStore,setActiveStore]=useState(null);
   const [syncState,setSyncState]=useState('saved');
   const [loaded,setLoaded]=useState(false);
@@ -1666,9 +2256,9 @@ function Dashboard({session,onLogout}){
 
   useEffect(()=>{
     async function init(){
-      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);setLoaded(true);return;}}catch{}
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);setLoaded(true);return;}}catch{}
       const local=lsGet(`srp-data-${u}`);
-      if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
+      if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);setCustomers(local.customers||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
       setLoaded(true);
     }
     init();
@@ -1676,17 +2266,18 @@ function Dashboard({session,onLogout}){
 
   useEffect(()=>{
     if(!db||!loaded)return;
-    const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{if(snap.exists&&!snap.metadata.hasPendingWrites){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);}},()=>{});
+    const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{if(snap.exists&&!snap.metadata.hasPendingWrites){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);}},()=>{});
     return unsub;
   },[u,loaded]);
 
-  function doSave(st,pr,sa){
+  function doSave(st,pr,sa,cu){
     clearTimeout(saveTimer.current);setSyncState('saving');
-    saveTimer.current=setTimeout(async()=>{await saveData(u,{stores:st,products:pr,sales:sa,updatedAt:Date.now()});setSyncState('saved');},1000);
+    saveTimer.current=setTimeout(async()=>{await saveData(u,{stores:st,products:pr,sales:sa,customers:cu,updatedAt:Date.now()});setSyncState('saved');},1000);
   }
-  function setS(fn){setStores(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(n,products,sales);if(n.length>0&&!activeStore)setActiveStore(n[0].id);return n;});}
-  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(stores,n,sales);return n;});}
-  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(stores,products,n);return n;});}
+  function setS(fn){setStores(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(n,products,sales,customers);if(n.length>0&&!activeStore)setActiveStore(n[0].id);return n;});}
+  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(stores,n,sales,customers);return n;});}
+  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(stores,products,n,customers);return n;});}
+  function setCu(fn){setCustomers(cc=>{const n=typeof fn==='function'?fn(cc):fn;doSave(stores,products,sales,n);return n;});}
 
   const NAV=[
     {id:'dashboard',label:'Dashboard',ico:'📊'},
@@ -1695,6 +2286,7 @@ function Dashboard({session,onLogout}){
     {id:'history',label:'Sales',ico:'🧾'},
     {id:'reports',label:'Reports',ico:'📈'},
     {id:'stores',label:'Stores',ico:'🏪'},
+    {id:'customers',label:'Customers',ico:'👥'},
     {id:'attendants',label:'Attendants',ico:'👤'},
     ...(session.isDev?[{id:'admin',label:'Admin',ico:'⚙️'}]:[]),
   ];
@@ -1773,12 +2365,13 @@ function Dashboard({session,onLogout}){
         </div>
         <div className="content">
           <div className="fade-in">
-            {view==='dashboard'&&<VDash stores={stores} products={products} sales={sales} session={session} setView={setView} activeStore={activeStore}/>}
-            {view==='sell'&&<VSell products={products} setSales={setSa} setProducts={setP} session={session} activeStore={activeStore} stores={stores}/>}
+            {view==='dashboard'&&<VDash stores={stores} products={products} sales={sales} customers={customers} session={session} setView={setView} activeStore={activeStore}/>}
+            {view==='sell'&&<VSell products={products} setSales={setSa} setProducts={setP} session={session} activeStore={activeStore} stores={stores} customers={customers}/>}
             {view==='products'&&<VProducts stores={stores} products={products} setProducts={setP} session={session} activeStore={activeStore}/>}
-            {view==='history'&&<VSalesHistory sales={sales} products={products} session={session} setSales={setSa} activeStore={activeStore} stores={stores}/>}
+            {view==='history'&&<VSalesHistory sales={sales} products={products} session={session} setSales={setSa} activeStore={activeStore} stores={stores} customers={customers}/>}
             {view==='reports'&&<VReports sales={sales} products={products} session={session} activeStore={activeStore}/>}
             {view==='stores'&&<VStores stores={stores} setStores={setS} products={products} sales={sales} session={session}/>}
+            {view==='customers'&&<VCustomers customers={customers} setCustomers={setCu} sales={sales} stores={stores} session={session} activeStore={activeStore} setView={setView}/>}
             {view==='attendants'&&<VAttendants stores={stores} session={session} activeStore={activeStore}/>}
             {view==='admin'&&session.isDev&&<VAdmin/>}
           </div>
