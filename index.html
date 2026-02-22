@@ -128,7 +128,7 @@ input,select,button,textarea{font-family:var(--fm);}
 .modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
 .modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);background:var(--bg2);z-index:1;flex-shrink:0;}
 .modal-hdr span{font-size:15px;font-weight:800;}
-.modal-body{padding:20px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;flex:1;}
+.modal-body{padding:20px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;flex:1;min-height:0;}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
 
 /* ── Plan card ────────────────────────────────────────────── */
@@ -218,10 +218,11 @@ input,select,button,textarea{font-family:var(--fm);}
     border-bottom:none;
     display:flex;
     flex-direction:column;
+    overflow:hidden;
   }
   .modal-hdr{padding:16px 16px 12px;border-radius:20px 20px 0 0;flex-shrink:0;}
-  .modal-body{padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;}
-  .modal-foot{padding:14px 16px;gap:8px;flex-shrink:0;}
+  .modal-body{padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;flex:1;min-height:0;}
+  .modal-foot{padding:14px 16px;gap:8px;flex-shrink:0;background:var(--bg2);border-top:1px solid var(--border);}
   .modal-foot .btn,
   .modal-foot .btn-outline{flex:1;justify-content:center;padding:14px;}
 
@@ -497,9 +498,9 @@ function AttendantDashboard({session,onLogout}){
 
   useEffect(()=>{
     async function init(){
-      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setProducts(d.products||[]);setSales(d.sales||[]);setStores(d.stores||[]);setLoaded(true);return;}}catch{}
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);setLoaded(true);return;}}catch{}
       const local=lsGet(`srp-data-${u}`);
-      if(local){setProducts(local.products||[]);setSales(local.sales||[]);setStores(local.stores||[]);}
+      if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);setCustomers(local.customers||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
       setLoaded(true);
     }
     init();
@@ -509,22 +510,20 @@ function AttendantDashboard({session,onLogout}){
     if(!db||!loaded)return;
     const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{
       if(snap.exists&&!snap.metadata.hasPendingWrites){
-        const d=snap.data();setProducts(d.products||[]);setSales(d.sales||[]);setStores(d.stores||[]);
+        const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
       }
     },()=>{});
     return unsub;
   },[u,loaded]);
 
-  function doSave(pr,sa){
+  function doSave(st,pr,sa,cu){
     clearTimeout(saveTimer.current);setSyncState('saving');
     saveTimer.current=setTimeout(async()=>{
-      const local=lsGet(`srp-data-${u}`)||{};
-      await saveData(u,{...local,products:pr,sales:sa,updatedAt:Date.now()});
+      await saveData(u,{stores:st,products:pr,sales:sa,customers:cu||[],updatedAt:Date.now()});
       setSyncState('saved');
-    },1000);
+    },800);
   }
-  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(n,sales);return n;});}
-  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(products,n);return n;});}
+
 
   const todaySales=sales.filter(s=>s.storeId===session.storeId&&s.date===today()&&s.attendantId===session.attendantId);
   const todayTotal=todaySales.reduce((t,s)=>t+s.total,0);
@@ -1273,10 +1272,15 @@ function ProductModal({data,onSave,onClose,sym}){
           </div>
           <div className="field"><label className="lbl">Barcode (optional)</label><input className="inp" value={f.barcode||''} onChange={e=>sv('barcode',e.target.value)} placeholder="Scan or type barcode"/></div>
           <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes||''} onChange={e=>sv('notes',e.target.value)} placeholder="Any notes…"/></div>
+          {/* Inline save — always visible while scrolling */}
+          <div style={{display:'flex',gap:8,marginTop:8,paddingTop:12,borderTop:'1px solid var(--border)'}}>
+            <button className="btn-outline" style={{flex:1,justifyContent:'center'}} onClick={onClose}>Cancel</button>
+            <button className="btn" style={{flex:2,justifyContent:'center'}} onClick={handleSave} disabled={!f.name.trim()}>💾 Save Product</button>
+          </div>
         </div>
         <div className="modal-foot">
           <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={handleSave} disabled={!f.name.trim()}>Save Product</button>
+          <button className="btn" onClick={handleSave} disabled={!f.name.trim()}>💾 Save Product</button>
         </div>
       </div>
     </div>
@@ -2210,10 +2214,14 @@ function CustomerModal({data, onSave, onClose}){
           </div>
 
           <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes||''} onChange={e=>sv('notes',e.target.value)} placeholder="Any notes…"/></div>
+          <div style={{display:'flex',gap:8,marginTop:12,paddingTop:12,borderTop:'1px solid var(--border)'}}>
+            <button className="btn-outline" style={{flex:1,justifyContent:'center'}} onClick={onClose}>Cancel</button>
+            <button className="btn" style={{flex:2,justifyContent:'center'}} onClick={()=>{if(f.name.trim())onSave(f);}} disabled={!f.name.trim()}>💾 Save Customer</button>
+          </div>
         </div>
         <div className="modal-foot">
           <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={()=>{if(f.name.trim())onSave(f);}} disabled={!f.name.trim()}>Save Customer</button>
+          <button className="btn" onClick={()=>{if(f.name.trim())onSave(f);}} disabled={!f.name.trim()}>💾 Save Customer</button>
         </div>
       </div>
     </div>
@@ -2332,10 +2340,14 @@ function AttendantModal({data,stores,onSave,onClose}){
             Share the PIN with your attendant. They log in at: <strong>Store → Attendant Login</strong>
           </div>
           <div className="field"><label className="lbl">Notes</label><input className="inp" value={f.notes||''} onChange={e=>sv('notes',e.target.value)} placeholder="Role, shift, etc."/></div>
+          <div style={{display:'flex',gap:8,marginTop:12,paddingTop:12,borderTop:'1px solid var(--border)'}}>
+            <button className="btn-outline" style={{flex:1,justifyContent:'center'}} onClick={onClose}>Cancel</button>
+            <button className="btn" style={{flex:2,justifyContent:'center'}} onClick={handleSave} disabled={!f.name.trim()||!f.storeId||(!data&&!f.pin)||saving}>{saving?'Saving…':'💾 Save Attendant'}</button>
+          </div>
         </div>
         <div className="modal-foot">
           <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={handleSave} disabled={!f.name.trim()||!f.storeId||(!data&&!f.pin)||saving}>{saving?'Saving…':'Save Attendant'}</button>
+          <button className="btn" onClick={handleSave} disabled={!f.name.trim()||!f.storeId||(!data&&!f.pin)||saving}>{saving?'Saving…':'💾 Save Attendant'}</button>
         </div>
       </div>
     </div>
@@ -2587,10 +2599,7 @@ function Dashboard({session,onLogout}){
     return unsub;
   },[u,loaded]);
 
-  function doSave(st,pr,sa,cu){
-    clearTimeout(saveTimer.current);setSyncState('saving');
-    saveTimer.current=setTimeout(async()=>{await saveData(u,{stores:st,products:pr,sales:sa,customers:cu,updatedAt:Date.now()});setSyncState('saved');},1000);
-  }
+  
   function setS(fn){setStores(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(n,products,sales,customers);if(n.length>0&&!activeStore)setActiveStore(n[0].id);return n;});}
   function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(stores,n,sales,customers);return n;});}
   function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(stores,products,n,customers);return n;});}
