@@ -40,7 +40,7 @@ input,select,button,textarea{font-family:var(--fm);}
 .app{display:flex;height:100vh;height:100dvh;overflow:hidden;}
 .sidebar{width:224px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
-.content{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+.content{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch;overscroll-behavior-y:auto;scroll-padding-bottom:100px;}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:50px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;gap:10px;}
 
 /* ── Sidebar ──────────────────────────────────────────────── */
@@ -178,10 +178,10 @@ input,select,button,textarea{font-family:var(--fm);}
   .sidebar{display:none;}
   .bottom-nav{display:block;}
 
-  /* Content clears bottom nav + safe area */
+  /* Content clears bottom nav + safe area — generous so last button never hidden */
   .content{
     padding:12px 12px;
-    padding-bottom:calc(var(--nh) + env(safe-area-inset-bottom,0px) + 24px);
+    padding-bottom:calc(var(--nh) + env(safe-area-inset-bottom,0px) + 80px);
   }
 
   /* Topbar */
@@ -377,8 +377,28 @@ const setAttendantSession=s=>lsSet('srp-att-session',s);
 const clearAttendantSession=()=>localStorage.removeItem('srp-att-session');
 const hashStr2=s=>{let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36);};
 
+// ── Subscription system — Firestore-backed ────────────────────
 const getSub=u=>lsGet(`srp-sub-${u}`);
-const setSub=(u,d)=>lsSet(`srp-sub-${u}`,d);
+const setSub=(u,d)=>{
+  lsSet(`srp-sub-${u}`,d);
+  // Also save to Firestore so admin activation works cross-device
+  if(db)try{db.collection('srp_subscriptions').doc(u).set({...d,updatedAt:Date.now()});}catch{}
+};
+
+// Load sub from Firestore and cache locally
+const loadSubFromFirestore=async(u)=>{
+  if(!db)return null;
+  try{
+    const doc=await db.collection('srp_subscriptions').doc(u).get();
+    if(doc.exists){
+      const data=doc.data();
+      lsSet(`srp-sub-${u}`,data); // cache locally
+      return data;
+    }
+  }catch{}
+  return null;
+};
+
 const subStatus=u=>{
   if(u===DEV_U)return{active:true,trial:false,plan:'premium',unlimited:true};
   const s=getSub(u);if(!s)return{active:false,trial:false,expired:true};
@@ -387,7 +407,12 @@ const subStatus=u=>{
   if(s.paid&&s.paidUntil&&now<s.paidUntil)return{active:true,trial:false,plan:s.plan,paidUntil:s.paidUntil};
   return{active:false,trial:false,expired:true,plan:s.plan};
 };
-const startTrial=u=>{if(!getSub(u))setSub(u,{plan:'standard',trialEnd:Date.now()+TRIAL_DAYS*86400000,paid:false,created:Date.now()});};
+const startTrial=u=>{
+  if(!getSub(u)){
+    const trial={plan:'standard',trialEnd:Date.now()+TRIAL_DAYS*86400000,paid:false,created:Date.now()};
+    setSub(u,trial); // setSub now also saves to Firestore
+  }
+};
 
 // ── Firebase helpers ───────────────────────────────────────────
 const getUsers=async()=>{
@@ -675,7 +700,12 @@ Please verify and activate.`;
     setSubmitted(true);
   }
 
-  function check(){const s=subStatus(username);if(s.active)onActivated();else alert('Not yet activated. Please wait for confirmation after WhatsApp message.');}
+  async function check(){
+    if(db)try{const doc=await db.collection('srp_subscriptions').doc(username).get();if(doc.exists){const d=doc.data();lsSet(`srp-sub-${username}`,d);}}catch{}
+    const s=subStatus(username);
+    if(s.active)onActivated();
+    else alert('Not activated yet. After sending your MoMo reference, the owner will activate within minutes. Tap Check again after a few minutes.');
+  }
 
   return(
     <div className="auth-wrap">
@@ -872,6 +902,76 @@ function StoreSelector({stores,activeStore,setActiveStore,onAdd}){
       )}
     </div>
   );
+}
+
+// ── GLOBAL SHARE HELPERS ───────────────────────────────────────
+function buildShareText(sale, store, sym){
+  return `🧾 *RECEIPT*
+*${store?.name||'StorePOS'}*${store?.location?`\n📍 ${store.location}`:''}
+${'─'.repeat(24)}
+${(sale.items||[]).map(i=>`• ${i.name} x${i.qty} = ${fmtMoney(i.sellPrice*i.qty,sym)}`).join('\n')}
+${'─'.repeat(24)}
+*TOTAL: ${fmtMoney(sale.total,sym)}*
+Payment: ${sale.payMethod||'Cash'}${sale.customer?`\nCustomer: ${sale.customer}`:''}
+Date: ${fmtDate(sale.date)}
+
+Thank you for your business! 🙏
+_Powered by StorePOS_`;
+}
+
+function ShareMenu({txt, customerPhone, customerEmail, onClose}){
+  const cleanPhone=(customerPhone||'').replace(/\D/g,'');
+  const waUrl=cleanPhone
+    ?`https://wa.me/${cleanPhone}?text=${encodeURIComponent(txt)}`
+    :`https://wa.me/?text=${encodeURIComponent(txt)}`;
+  const smsUrl=customerPhone?`sms:${customerPhone}?body=${encodeURIComponent(txt)}`:`sms:?body=${encodeURIComponent(txt)}`;
+
+  const options=[
+    {ico:'💬',label:'WhatsApp',sub:customerPhone||'Choose contact',color:'var(--green)',border:'#22c55e44',action:()=>{window.open(waUrl,'_blank');onClose();}},
+    {ico:'💬',label:'SMS',sub:customerPhone||'Choose contact',color:'var(--blue)',border:'#6366f144',action:()=>{window.open(smsUrl,'_blank');onClose();}},
+    {ico:'✉️',label:'Email',sub:customerEmail||'Enter email',color:'var(--amber)',border:'#f59e0b44',action:()=>{window.open(`mailto:${customerEmail||''}?subject=Your Receipt&body=${encodeURIComponent(txt.replace(/\*/g,'').replace(/_/g,''))}`,'_blank');onClose();}},
+    {ico:'📋',label:'Copy Text',sub:'Paste anywhere',color:'var(--text2)',border:'var(--border)',action:()=>{navigator.clipboard.writeText(txt.replace(/\*/g,'').replace(/_/g,'')).then(()=>alert('✅ Copied to clipboard!'));onClose();}},
+    ...(navigator.share?[{ico:'📤',label:'Share',sub:'All apps',color:'var(--accent)',border:'#f9731644',action:()=>{navigator.share({title:'Receipt',text:txt.replace(/\*/g,'').replace(/_/g,'')});onClose();}}]:[]),
+  ];
+  return(
+    <div className="modal-ov" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:400}}>
+        <div className="modal-hdr">
+          <span>📤 Send Receipt</span>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:20,lineHeight:1}}>✕</button>
+        </div>
+        <div className="modal-body" style={{paddingBottom:8}}>
+          {!customerPhone&&!customerEmail&&(
+            <div className="notice notice-warn" style={{fontSize:11,marginBottom:12}}>
+              💡 Add customer phone/email in the Customers tab to send directly to them
+            </div>
+          )}
+          <div style={{display:'grid',gap:8}}>
+            {options.map((o,i)=>(
+              <button key={i} onClick={o.action} style={{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',background:'var(--bg)',border:`1px solid ${o.border}`,borderRadius:10,cursor:'pointer',textAlign:'left',width:'100%',touchAction:'manipulation'}}>
+                <span style={{fontSize:26,flexShrink:0}}>{o.ico}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:'var(--fm)',fontSize:14,fontWeight:700,color:o.color,marginBottom:2}}>{o.label}</div>
+                  <div style={{fontFamily:'var(--fm)',fontSize:11,color:'var(--text3)'}}>{o.sub}</div>
+                </div>
+                <span style={{color:'var(--text3)',fontSize:16}}>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{padding:'12px 20px',borderTop:'1px solid var(--border)',fontSize:11,color:'var(--text3)',textAlign:'center'}}>
+          Customer details auto-fill when linked in Customers tab
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Share menu state (global-ish via window)
+let _shareMenuData=null;
+let _setShareMenu=null;
+function openShareMenu(txt,customerName,phone,email){
+  if(_setShareMenu)_setShareMenu({txt,customerName,phone,email});
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────
@@ -1226,9 +1326,8 @@ function VSell({products,setSales,setProducts,session,activeStore,stores,custome
 
   function shareReceipt(sale){
     const store=stores.find(s=>s.id===activeStore);
-    const txt=`🧾 RECEIPT\n${store?.name||'Store'}\n${'─'.repeat(24)}\n${sale.items.map(i=>`${i.name} x${i.qty} @ ${fmtMoney(i.sellPrice,sym)} = ${fmtMoney(i.sellPrice*i.qty,sym)}`).join('\n')}\n${'─'.repeat(24)}\nTOTAL: ${fmtMoney(sale.total,sym)}\nPayment: ${sale.payMethod}\n${sale.customer?`Customer: ${sale.customer}\n`:''}\nDate: ${fmtDate(sale.date)}\nPowered by StorePOS`;
-    if(navigator.share)navigator.share({title:'Receipt',text:txt});
-    else navigator.clipboard.writeText(txt).then(()=>alert('Receipt copied!'));
+    const txt=buildShareText(sale,store,sym);
+    openShareMenu(txt, sale.customer);
   }
 
   if(done){
@@ -1358,9 +1457,9 @@ function VSalesHistory({sales,products,session,setSales,activeStore,stores,custo
   }
   function shareReceipt(s){
     const store=stores.find(st=>st.id===activeStore);
-    const txt=`🧾 RECEIPT\n${store?.name||''}\n${'─'.repeat(22)}\n${s.items?.map(i=>`${i.name} x${i.qty} = ${fmtMoney(i.sellPrice*i.qty,sym)}`).join('\n')||''}\n${'─'.repeat(22)}\nTOTAL: ${fmtMoney(s.total,sym)}\n${s.customer?`Customer: ${s.customer}\n`:''}Date: ${fmtDate(s.date)}\nStorePOS`;
-    if(navigator.share)navigator.share({title:'Receipt',text:txt});
-    else navigator.clipboard.writeText(txt).then(()=>alert('Copied!'));
+    const txt=buildShareText(s,store,sym);
+    const cust=customers?.find(c=>c.id===s.customerId);
+    openShareMenu(txt, s.customer, cust?.phone, cust?.email);
   }
 
   return(
@@ -2173,145 +2272,207 @@ function AttendantModal({data,stores,onSave,onClose}){
 // ── ADMIN ─────────────────────────────────────────────────────
 function VAdmin(){
   const [users,setUsers]=useState({});
+  const [subs,setSubs]=useState({});
   const [pending,setPending]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState('overview');
+  const [tab,setTab]=useState('pending');
   const [customDays,setCustomDays]=useState({});
+  const [search,setSearch]=useState('');
+  const [tick,setTick]=useState(0);
 
   useEffect(()=>{
     async function load(){
-      const u=await getUsers();setUsers(u);
-      if(db)try{const snap=await db.collection('srp_pending').get();setPending(snap.docs.map(d=>({id:d.id,...d.data()})));}catch{}
+      setLoading(true);
+      const u=await getUsers(); setUsers(u);
+      if(db){
+        try{
+          const ss=await db.collection('srp_subscriptions').get();
+          const m={};
+          ss.docs.forEach(d=>{m[d.id]=d.data();lsSet(`srp-sub-${d.id}`,d.data());});
+          setSubs(m);
+        }catch(e){console.warn('subs',e);}
+        try{
+          const ps=await db.collection('srp_pending').get();
+          setPending(ps.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.requestedAt-a.requestedAt));
+        }catch(e){console.warn('pend',e);}
+      }
       setLoading(false);
     }
     load();
-  },[]);
-
-  if(loading)return<div style={{textAlign:'center',padding:40}}><div className="spinner" style={{margin:'0 auto 10px'}}/>Loading…</div>;
-
-  const allUsers=Object.keys(users).filter(u=>u!==DEV_U);
-  const paying=allUsers.filter(u=>{const s=subStatus(u);return s.active&&!s.trial;});
-  const trials=allUsers.filter(u=>{const s=subStatus(u);return s.trial;});
-  const revenue=paying.reduce((t,u)=>{const s=subStatus(u);return t+(PLANS[s.plan]?.price||0);},0);
+  },[tick]);
 
   async function activate(username,plan,days){
     const paidUntil=Date.now()+days*86400000;
-    const sub={plan,paid:true,paidUntil,activatedAt:Date.now()};
-    setSub(username,sub);
-    if(db){try{await db.collection('srp_subscriptions').doc(username).set(sub);await db.collection('srp_pending').doc(username).delete();}catch{}}
+    const sub={plan,paid:true,paidUntil,activatedAt:Date.now(),daysGranted:days};
+    lsSet(`srp-sub-${username}`,sub);
+    setSubs(s=>({...s,[username]:sub}));
+    if(db){
+      try{
+        await db.collection('srp_subscriptions').doc(username).set(sub);
+        await db.collection('srp_pending').doc(username).delete();
+      }catch(e){alert('Error: '+e.message);return;}
+    }
     setPending(p=>p.filter(x=>x.id!==username));
-    alert(`✅ ${username} activated`);
+    alert('✅ '+username+' activated on '+plan+' for '+days+' days!');
   }
+
   async function revoke(username){
-    if(!confirm(`Revoke ${username}?`))return;
-    setSub(username,{plan:null,paid:false,paidUntil:0,revoked:true});
-    alert(`Revoked`);
+    if(!confirm('Revoke '+username+'?'))return;
+    const sub={plan:null,paid:false,paidUntil:0,revoked:true,revokedAt:Date.now()};
+    lsSet(`srp-sub-${username}`,sub);
+    setSubs(s=>({...s,[username]:sub}));
+    if(db)try{await db.collection('srp_subscriptions').doc(username).set(sub);}catch{}
+    alert('Revoked.');
   }
+
+  const getS=u=>subs[u]||getSub(u)||null;
+  const getStatus=u=>{
+    if(u===DEV_U)return{active:true,trial:false,plan:'premium',label:'DEV'};
+    const s=getS(u); if(!s)return{active:false,label:'No Sub'};
+    const now=Date.now();
+    if(s.trialEnd&&now<s.trialEnd&&!s.paid)return{active:true,trial:true,daysLeft:Math.ceil((s.trialEnd-now)/86400000),plan:s.plan,label:'Trial '+Math.ceil((s.trialEnd-now)/86400000)+'d'};
+    if(s.paid&&s.paidUntil&&now<s.paidUntil)return{active:true,trial:false,plan:s.plan,daysLeft:Math.ceil((s.paidUntil-now)/86400000),paidUntil:s.paidUntil,label:s.plan?.toUpperCase()+' '+Math.ceil((s.paidUntil-now)/86400000)+'d'};
+    if(s.revoked)return{active:false,label:'Revoked'};
+    return{active:false,label:'Expired'};
+  };
+
+  if(loading)return <div style={{textAlign:'center',padding:60}}><div className="spinner" style={{margin:'0 auto 12px'}}/><div style={{fontSize:12,color:'var(--text3)',letterSpacing:2}}>LOADING…</div></div>;
+
+  const allU=Object.keys(users).filter(u=>u!==DEV_U);
+  const paying=allU.filter(u=>{const s=getStatus(u);return s.active&&!s.trial;});
+  const trials=allU.filter(u=>getStatus(u).trial);
+  const expired=allU.filter(u=>!getStatus(u).active);
+  const revenue=paying.reduce((t,u)=>t+(PLANS[getStatus(u).plan]?.price||0),0);
+
+  const filtered=allU.filter(u=>!search||u.includes(search.toLowerCase())||(users[u]?.business||'').toLowerCase().includes(search.toLowerCase()))
+    .filter(u=>{
+      const s=getStatus(u);
+      if(tab==='active')return s.active&&!s.trial;
+      if(tab==='trial')return s.trial;
+      if(tab==='expired')return !s.active;
+      return true;
+    });
 
   return(
     <div>
-      <div className="rtabs">
-        {[['overview','Overview'],['users','Users'],['revenue','Revenue']].map(([id,l])=>(
-          <button key={id} className={`rtab${tab===id?' active':''}`} onClick={()=>setTab(id)}>{l}</button>
-        ))}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <div><div style={{fontWeight:800,fontSize:16}}>⚙️ Admin Panel</div><div style={{fontSize:11,color:'var(--text3)'}}>Manage StorePOS subscribers</div></div>
+        <button className="btn-outline" onClick={()=>setTick(t=>t+1)} style={{fontSize:11,minHeight:36,padding:'6px 14px'}}>🔄 Refresh</button>
       </div>
-      {tab==='overview'&&(
+
+      <div className="stats-grid" style={{marginBottom:14}}>
+        <div className="stat-card"><div className="stat-label">Total Users</div><div className="stat-val">{allU.length}</div></div>
+        <div className="stat-card"><div className="stat-label">Paying</div><div className="stat-val" style={{color:'var(--green)'}}>{paying.length}</div></div>
+        <div className="stat-card"><div className="stat-label">Trial</div><div className="stat-val" style={{color:'var(--amber)'}}>{trials.length}</div></div>
+        <div className="stat-card"><div className="stat-label">Monthly Rev</div><div className="stat-val" style={{fontSize:14,color:'var(--accent)'}}>GH₵{(revenue/100).toFixed(2)}</div></div>
+      </div>
+
+      <div className="rtabs">
+        <button className={`rtab${tab==='pending'?' active':''}`} onClick={()=>setTab('pending')} style={pending.length>0&&tab!=='pending'?{borderColor:'var(--amber)',color:'var(--amber)'}:{}}>⏳ Pending {pending.length>0&&`(${pending.length})`}</button>
+        <button className={`rtab${tab==='active'?' active':''}`} onClick={()=>setTab('active')}>✅ Active ({paying.length})</button>
+        <button className={`rtab${tab==='trial'?' active':''}`} onClick={()=>setTab('trial')}>🎁 Trial ({trials.length})</button>
+        <button className={`rtab${tab==='expired'?' active':''}`} onClick={()=>setTab('expired')}>❌ Expired ({expired.length})</button>
+        <button className={`rtab${tab==='all'?' active':''}`} onClick={()=>setTab('all')}>👥 All ({allU.length})</button>
+        <button className={`rtab${tab==='revenue'?' active':''}`} onClick={()=>setTab('revenue')}>💰 Revenue</button>
+      </div>
+
+      {tab==='pending'&&(
         <div>
-          <div className="stats-grid">
-            <div className="stat-card"><div className="stat-label">Total Users</div><div className="stat-val">{allUsers.length}</div></div>
-            <div className="stat-card"><div className="stat-label">Paying</div><div className="stat-val" style={{color:'var(--green)'}}>{paying.length}</div></div>
-            <div className="stat-card"><div className="stat-label">On Trial</div><div className="stat-val" style={{color:'var(--amber)'}}>{trials.length}</div></div>
-            <div className="stat-card"><div className="stat-label">Monthly Rev</div><div className="stat-val" style={{fontSize:15,color:'var(--accent)'}}>{fmtMoney(revenue,'GH₵')}</div></div>
-          </div>
-          {pending.length>0&&(
-            <div className="card" style={{border:'1px solid var(--amber)'}}>
-              <div className="sec-title" style={{color:'var(--amber)'}}>⏳ Pending ({pending.length})</div>
-              {pending.map(p=>(
-                <div key={p.id} style={{padding:'10px 0',borderBottom:'1px solid var(--border2)'}}>
-                  <div style={{fontWeight:700,marginBottom:8}}>{p.username} — <span style={{color:'var(--accent)'}}>{PLANS[p.plan]?.label||p.plan}</span></div>
-                  <div style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:10,marginBottom:8}}>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:11,marginBottom:8}}>
-                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>APP</div><div style={{fontWeight:700,color:'var(--accent)'}}>{p.appName||'Not specified'}</div></div>
-                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>NETWORK</div><div style={{fontWeight:700}}>{p.network||'—'}</div></div>
-                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>AMOUNT</div><div style={{fontWeight:700,color:'var(--green)'}}>GH₵{((p.amount||0)/100).toFixed(2)}</div></div>
-                      <div><div style={{fontSize:9,color:'var(--text3)',letterSpacing:1}}>DATE</div><div style={{fontWeight:600,fontSize:10}}>{p.requestedAtStr||new Date(p.requestedAt).toLocaleDateString()}</div></div>
-                    </div>
-                    <div style={{padding:'8px 10px',background:'var(--bg2)',borderRadius:6,border:'1px solid #f59e0b44'}}>
-                      <div style={{fontSize:9,color:'var(--amber)',letterSpacing:2,marginBottom:3,fontWeight:700}}>🔑 TRANSACTION ID</div>
-                      <div style={{fontFamily:'var(--fd)',fontSize:15,fontWeight:700,color:'var(--amber)',letterSpacing:1}}>{p.txnId||<span style={{color:'var(--text3)',fontFamily:'var(--fm)',fontWeight:400,fontSize:11}}>Not provided</span>}</div>
-                    </div>
+          {pending.length===0
+            ?<div className="card empty-state"><div className="empty-ico">✅</div><div>No pending payments</div></div>
+            :pending.map(p=>(
+            <div key={p.id} className="card" style={{border:'1px solid #f59e0b55',marginBottom:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                <div><div style={{fontWeight:800,fontSize:15}}>👤 {p.username}</div><div style={{fontSize:11,color:'var(--text3)'}}>{p.requestedAtStr||new Date(p.requestedAt).toLocaleString()}</div></div>
+                <span className="tag tag-amber">⏳ PENDING</span>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+                {[['APP',p.appName||'—','var(--accent)'],['PLAN',(PLANS[p.plan]?.name||p.plan)+' · '+(PLANS[p.plan]?.label||''),'var(--text)'],['NETWORK',p.network||'—','var(--text)'],['AMOUNT','GH₵'+((p.amount||0)/100).toFixed(2),'var(--green)']].map(([l,v,c])=>(
+                  <div key={l} style={{background:'var(--bg)',borderRadius:6,padding:'8px 10px'}}>
+                    <div style={{fontSize:9,color:'var(--text3)',letterSpacing:1,marginBottom:2}}>{l}</div>
+                    <div style={{fontWeight:700,fontSize:12,color:c}}>{v}</div>
                   </div>
-                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                    <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'basic',30)}>Basic 30d</button>
-                    <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'standard',30)}>Standard 30d</button>
-                    <button className="btn-sm" style={{fontSize:9}} onClick={()=>activate(p.username,'premium',30)}>Premium 30d</button>
-                    <button className="btn-danger" style={{fontSize:9,marginLeft:'auto'}} onClick={()=>{if(db)try{db.collection('srp_pending').doc(p.id).delete();}catch{}setPending(pp=>pp.filter(x=>x.id!==p.id));}}>✕ Reject</button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div style={{background:'#f59e0b11',border:'1px solid #f59e0b44',borderRadius:8,padding:'10px 14px',marginBottom:12}}>
+                <div style={{fontSize:9,color:'var(--amber)',letterSpacing:2,fontWeight:700,marginBottom:6}}>🔑 MOMO TRANSACTION ID — VERIFY BEFORE ACTIVATING</div>
+                <div style={{fontFamily:'var(--fd)',fontSize:20,fontWeight:800,color:'var(--amber)',letterSpacing:2,wordBreak:'break-all'}}>{p.txnId||<span style={{color:'var(--text3)',fontFamily:'var(--fm)',fontWeight:400,fontSize:12}}>Not provided</span>}</div>
+              </div>
+              <div style={{fontSize:10,color:'var(--text3)',fontWeight:700,letterSpacing:1,marginBottom:8}}>ACTIVATE AS (30 DAYS):</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginBottom:8}}>
+                {Object.values(PLANS).map(pl=>(
+                  <button key={pl.id} className="btn" style={{fontSize:11,padding:'10px 6px',justifyContent:'center',flexDirection:'column',gap:2}} onClick={()=>activate(p.username,pl.id,30)}>
+                    <span>{pl.name}</span><span style={{fontSize:9,opacity:.7}}>{pl.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button className="btn-outline" style={{flex:1,justifyContent:'center',fontSize:12}} onClick={()=>activate(p.username,p.plan||'standard',30)}>✅ Activate ({(PLANS[p.plan]?.name||p.plan)})</button>
+                <button className="btn-danger" style={{padding:'10px 14px'}} onClick={()=>{if(db)try{db.collection('srp_pending').doc(p.id).delete();}catch{}setPending(pp=>pp.filter(x=>x.id!==p.id));}}>✕ Reject</button>
+              </div>
             </div>
-          )}
+          ))}
         </div>
       )}
-      {tab==='users'&&(
+
+      {['all','active','trial','expired'].includes(tab)&&(
         <div>
-          {allUsers.map(u=>{
-            const usr=users[u];const s=subStatus(u);const days=customDays[u]||30;
+          <div className="search-wrap">
+            <span className="search-ico">🔍</span>
+            <input className="inp search-inp" placeholder="Search username or business…" value={search} onChange={e=>setSearch(e.target.value)}/>
+          </div>
+          {filtered.length===0&&<div className="card empty-state"><div className="empty-ico">👥</div><div>No users</div></div>}
+          {filtered.map(u=>{
+            const usr=users[u]; const st=getStatus(u); const days=customDays[u]||30;
+            const tagCls=st.active&&!st.trial?'tag-green':st.trial?'tag-amber':'tag-red';
             return(
-              <div key={u} className="card" style={{marginBottom:8}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,flexWrap:'wrap',gap:6}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:13}}>{usr?.business||u}</div>
-                    <div style={{fontSize:10,color:'var(--text3)'}}>@{u} · {usr?.currency||'GHS'}</div>
+              <div key={u} className="card" style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:800,fontSize:14,marginBottom:2}}>{usr?.business||u}</div>
+                    <div style={{fontSize:11,color:'var(--text3)',marginBottom:4}}>@{u} · {usr?.currency||'GHS'}</div>
+                    {st.active&&!st.trial&&<div style={{fontSize:11,color:'var(--green)'}}>✅ Expires {new Date(st.paidUntil).toLocaleDateString()} ({st.daysLeft}d left)</div>}
+                    {st.trial&&<div style={{fontSize:11,color:'var(--amber)'}}>🎁 Trial — {st.daysLeft}d left</div>}
+                    {!st.active&&<div style={{fontSize:11,color:'var(--red)'}}>❌ Inactive</div>}
                   </div>
-                  <span className={`tag ${s.active&&!s.trial?'tag-green':s.trial?'tag-amber':'tag-red'}`}>
-                    {s.active&&!s.trial?`ACTIVE · ${s.plan?.toUpperCase()}`:(s.trial?`TRIAL ${s.daysLeft}d`:'EXPIRED')}
-                  </span>
+                  <span className={`tag ${tagCls}`}>{st.label?.toUpperCase()}</span>
                 </div>
-                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-                  <input type="number" value={days} onChange={e=>setCustomDays(c=>({...c,[u]:parseInt(e.target.value)||30}))} style={{width:55,padding:'4px 8px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:12}} min="1"/>
+                <div style={{background:'var(--bg)',borderRadius:8,padding:10,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  <input type="number" value={days} onChange={e=>setCustomDays(c=>({...c,[u]:parseInt(e.target.value)||30}))} style={{width:58,padding:'6px 8px',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:13,fontFamily:'var(--fd)'}} min="1"/>
                   <span style={{fontSize:10,color:'var(--text3)'}}>days</span>
-                  {['basic','standard','premium'].map(plan=>(
-                    <button key={plan} className="btn-sm" style={{fontSize:9}} onClick={()=>activate(u,plan,days)}>{plan.charAt(0).toUpperCase()+plan.slice(1)}</button>
+                  {Object.values(PLANS).map(pl=>(
+                    <button key={pl.id} className="btn-sm" style={{fontSize:10}} onClick={()=>activate(u,pl.id,days)}>{pl.name}</button>
                   ))}
-                  <button className="btn-danger" style={{fontSize:9}} onClick={()=>revoke(u)}>Revoke</button>
+                  {st.active&&<button className="btn-danger" style={{fontSize:10,marginLeft:'auto'}} onClick={()=>revoke(u)}>Revoke</button>}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
       {tab==='revenue'&&(
         <div>
           <div className="card">
             <div className="sec-title">Revenue by Plan</div>
-            {Object.values(PLANS).map(plan=>{
-              const count=paying.filter(u=>subStatus(u).plan===plan.id).length;
+            {Object.values(PLANS).map(pl=>{
+              const count=paying.filter(u=>getStatus(u).plan===pl.id).length;
               return(
-                <div key={plan.id} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid var(--border2)'}}>
-                  <span style={{fontSize:13,color:'var(--text2)'}}>{plan.name} ({plan.label})</span>
-                  <div style={{textAlign:'right'}}>
-                    <div style={{fontWeight:700,color:'var(--accent)',fontFamily:'var(--fd)',fontSize:13}}>{fmtMoney(count*plan.price,'GH₵')}</div>
-                    <div style={{fontSize:10,color:'var(--text3)'}}>{count} user{count!==1?'s':''}</div>
-                  </div>
+                <div key={pl.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid var(--border2)'}}>
+                  <div><div style={{fontWeight:700}}>{pl.name}</div><div style={{fontSize:11,color:'var(--text3)'}}>{pl.label} × {count} users</div></div>
+                  <div style={{fontFamily:'var(--fd)',fontWeight:800,color:'var(--accent)',fontSize:14}}>{fmtMoney(count*pl.price,'GH₵')}</div>
                 </div>
               );
             })}
-            <div style={{display:'flex',justifyContent:'space-between',padding:'12px 0',fontWeight:800,fontSize:15}}>
-              <span>Total Monthly</span><span style={{color:'var(--accent)',fontFamily:'var(--fd)'}}>{fmtMoney(revenue,'GH₵')}</span>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'14px 0',fontWeight:800,fontSize:16,borderTop:'2px solid var(--border)'}}>
+              <span>Total Monthly</span><span style={{color:'var(--accent)',fontFamily:'var(--fd)'}}>GH₵{(revenue/100).toFixed(2)}</span>
             </div>
           </div>
           <div className="card">
-            <div className="sec-title">Payment Numbers</div>
+            <div className="sec-title">MoMo Numbers</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <div style={{background:'#f59e0b22',border:'1px solid #f59e0b44',borderRadius:8,padding:12,textAlign:'center'}}>
-                <div style={{fontSize:8,letterSpacing:2,color:'var(--amber)',fontWeight:700,marginBottom:3}}>MTN MOMO</div>
-                <div style={{fontSize:15,fontWeight:800,color:'var(--amber)',fontFamily:'var(--fd)'}}>{OWNER.mtn}</div>
-              </div>
-              <div style={{background:'#ef444422',border:'1px solid #ef444444',borderRadius:8,padding:12,textAlign:'center'}}>
-                <div style={{fontSize:8,letterSpacing:2,color:'var(--red)',fontWeight:700,marginBottom:3}}>TELECEL</div>
-                <div style={{fontSize:15,fontWeight:800,color:'var(--red)',fontFamily:'var(--fd)'}}>{OWNER.telecel}</div>
-              </div>
+              <div style={{background:'#f59e0b22',border:'1px solid #f59e0b44',borderRadius:8,padding:14,textAlign:'center'}}><div style={{fontSize:9,letterSpacing:2,color:'var(--amber)',fontWeight:700,marginBottom:4}}>MTN MOMO</div><div style={{fontSize:18,fontWeight:800,color:'var(--amber)',fontFamily:'var(--fd)'}}>{OWNER.mtn}</div></div>
+              <div style={{background:'#ef444422',border:'1px solid #ef444444',borderRadius:8,padding:14,textAlign:'center'}}><div style={{fontSize:9,letterSpacing:2,color:'var(--red)',fontWeight:700,marginBottom:4}}>TELECEL</div><div style={{fontSize:18,fontWeight:800,color:'var(--red)',fontFamily:'var(--fd)'}}>{OWNER.telecel}</div></div>
             </div>
           </div>
         </div>
@@ -2319,6 +2480,7 @@ function VAdmin(){
     </div>
   );
 }
+
 
 // ── DASHBOARD ─────────────────────────────────────────────────
 function Dashboard({session,onLogout}){
@@ -2331,6 +2493,8 @@ function Dashboard({session,onLogout}){
   const [syncState,setSyncState]=useState('saved');
   const [loaded,setLoaded]=useState(false);
   const [storeModal,setStoreModal]=useState(false);
+  const [shareMenu,setShareMenu]=useState(null);
+  useEffect(()=>{_setShareMenu=setShareMenu;return()=>{_setShareMenu=null;};},[]);
   const saveTimer=useRef(null);
   const u=session.username;
 
@@ -2459,6 +2623,7 @@ function Dashboard({session,onLogout}){
       </div>
 
       <MobileNav NAV={NAV} view={view} setView={setView} onLogout={onLogout} session={session} syncState={syncState}/>
+      {shareMenu&&<ShareMenu txt={shareMenu.txt} customerPhone={shareMenu.phone} customerEmail={shareMenu.email} onClose={()=>setShareMenu(null)}/>}
     </div>
   );
 }
@@ -2467,6 +2632,18 @@ function Dashboard({session,onLogout}){
 function App(){
   const [session,setSession]=useState(null);
   const [ready,setReady]=useState(false);
+  const [installPrompt,setInstallPrompt]=useState(null);
+  const [showInstall,setShowInstall]=useState(false);
+
+  useEffect(()=>{
+    const handler=e=>{e.preventDefault();setInstallPrompt(e);setShowInstall(true);};
+    window.addEventListener('beforeinstallprompt',handler);
+    return()=>window.removeEventListener('beforeinstallprompt',handler);
+  },[]);
+
+  function doInstall(){
+    if(installPrompt){installPrompt.prompt();installPrompt.userChoice.then(()=>{setInstallPrompt(null);setShowInstall(false);});}
+  }
 
   const [mode,setMode]=useState('owner'); // 'owner' | 'attendant'
   const [attSession,setAttSession]=useState(null);
@@ -2482,10 +2659,28 @@ function App(){
     setReady(true);
   },[]);
 
-  function login(s){setSession(s);lsSet('srp-session',s);if(!s.isDev&&!getSub(s.username))startTrial(s.username);}
+  async function login(s){
+    setSession(s);lsSet('srp-session',s);
+    if(!s.isDev){
+      if(db)try{const doc=await db.collection('srp_subscriptions').doc(s.username).get();if(doc.exists)lsSet(`srp-sub-${s.username}`,doc.data());}catch{}
+      if(!getSub(s.username))startTrial(s.username);
+    }
+  }
   function logout(){setSession(null);lsSet('srp-session',null);window.location.reload();}
   function attLogin(s){setAttSession(s);setAttendantSession(s);}
   function attLogout(){setAttSession(null);clearAttendantSession();window.location.reload();}
+
+  const InstallBanner=showInstall&&!session?(
+    <div style={{position:'fixed',bottom:0,left:0,right:0,background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'12px 16px',zIndex:200,display:'flex',alignItems:'center',gap:12,boxShadow:'0 -4px 20px #f9731644'}}>
+      <span style={{fontSize:24}}>🏪</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:800,fontSize:13,color:'#0a0a0f'}}>Install StorePOS</div>
+        <div style={{fontSize:11,color:'rgba(0,0,0,.6)'}}>Add to home screen for best experience</div>
+      </div>
+      <button onClick={doInstall} style={{background:'#0a0a0f',color:'var(--accent)',border:'none',borderRadius:8,padding:'8px 16px',fontFamily:'var(--fm)',fontWeight:800,fontSize:12,cursor:'pointer',flexShrink:0}}>Install</button>
+      <button onClick={()=>setShowInstall(false)} style={{background:'none',border:'none',color:'rgba(0,0,0,.5)',cursor:'pointer',fontSize:18,padding:'0 4px'}}>✕</button>
+    </div>
+  ):null;
 
   if(!ready)return<div className="loading"><div className="spinner"/></div>;
 
@@ -2499,8 +2694,9 @@ function App(){
   if(!session){
     return(
       <div>
+        {InstallBanner}
         <Auth onLogin={login}/>
-        <div style={{position:'fixed',bottom:20,left:0,right:0,textAlign:'center'}}>
+        <div style={{position:'fixed',bottom:showInstall?80:20,left:0,right:0,textAlign:'center'}}>
           <button onClick={()=>setMode('attendant')} style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,color:'var(--text2)',padding:'10px 20px',cursor:'pointer',fontFamily:'var(--fm)',fontSize:12,fontWeight:600}}>
             👤 Attendant Login →
           </button>
