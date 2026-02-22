@@ -521,13 +521,7 @@ function AttendantDashboard({session,onLogout}){
     return unsub;
   },[u,loaded]);
 
-  function doSave(st,pr,sa,cu){
-    clearTimeout(saveTimer.current);setSyncState('saving');
-    saveTimer.current=setTimeout(async()=>{
-      await saveData(u,{stores:st,products:pr,sales:sa,customers:cu||[],updatedAt:Date.now()});
-      setSyncState('saved');
-    },800);
-  }
+
 
 
   const todaySales=sales.filter(s=>s.storeId===session.storeId&&s.date===today()&&s.attendantId===session.attendantId);
@@ -2588,11 +2582,48 @@ function Dashboard({session,onLogout}){
   const saveTimer=useRef(null);
   const u=session.username;
 
+  // Refs always hold latest state — fixes stale closure bug in setters
+  const stRef=useRef([]);
+  const prRef=useRef([]);
+  const saRef=useRef([]);
+  const cuRef=useRef([]);
+  useEffect(()=>{stRef.current=stores;},[stores]);
+  useEffect(()=>{prRef.current=products;},[products]);
+  useEffect(()=>{saRef.current=sales;},[sales]);
+  useEffect(()=>{cuRef.current=customers;},[customers]);
+
+  // doSave always reads fresh values from refs — never stale
+  function doSave(){
+    clearTimeout(saveTimer.current);
+    setSyncState('saving');
+    saveTimer.current=setTimeout(async()=>{
+      const data={stores:stRef.current,products:prRef.current,sales:saRef.current,customers:cuRef.current,updatedAt:Date.now()};
+      lsSet(`srp-data-${u}`,data);
+      if(db)try{await db.collection('srp_data').doc(u).set(data);setSyncState('saved');}catch(e){setSyncState('error');console.warn('Save error:',e);}
+      else setSyncState('saved');
+    },800);
+  }
+
   useEffect(()=>{
     async function init(){
-      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);setLoaded(true);return;}}catch{}
+      if(db)try{
+        const snap=await db.collection('srp_data').doc(u).get();
+        if(snap.exists){
+          const d=snap.data();
+          const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
+          stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+          setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+          if(st.length>0)setActiveStore(st[0].id);
+          setLoaded(true);return;
+        }
+      }catch(e){console.warn('Init load error:',e);}
       const local=lsGet(`srp-data-${u}`);
-      if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);setCustomers(local.customers||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
+      if(local){
+        const st=local.stores||[];const pr=local.products||[];const sa=local.sales||[];const cu=local.customers||[];
+        stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+        setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+        if(st.length>0)setActiveStore(st[0].id);
+      }
       setLoaded(true);
     }
     init();
@@ -2600,15 +2631,22 @@ function Dashboard({session,onLogout}){
 
   useEffect(()=>{
     if(!db||!loaded)return;
-    const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{if(snap.exists&&!snap.metadata.hasPendingWrites){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);}},()=>{});
+    const unsub=db.collection('srp_data').doc(u).onSnapshot(snap=>{
+      if(snap.exists&&!snap.metadata.hasPendingWrites){
+        const d=snap.data();
+        const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
+        stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+        setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+      }
+    },()=>{});
     return unsub;
   },[u,loaded]);
 
-  
-  function setS(fn){setStores(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(n,products,sales,customers);if(n.length>0&&!activeStore)setActiveStore(n[0].id);return n;});}
-  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;doSave(stores,n,sales,customers);return n;});}
-  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;doSave(stores,products,n,customers);return n;});}
-  function setCu(fn){setCustomers(cc=>{const n=typeof fn==='function'?fn(cc):fn;doSave(stores,products,sales,n);return n;});}
+  // Setters: update ref immediately then trigger save — no stale data ever
+  function setS(fn){setStores(ss=>{const n=typeof fn==='function'?fn(ss):fn;stRef.current=n;if(n.length>0&&!activeStore)setActiveStore(n[0].id);doSave();return n;});}
+  function setP(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;prRef.current=n;doSave();return n;});}
+  function setSa(fn){setSales(ss=>{const n=typeof fn==='function'?fn(ss):fn;saRef.current=n;doSave();return n;});}
+  function setCu(fn){setCustomers(cc=>{const n=typeof fn==='function'?fn(cc):fn;cuRef.current=n;doSave();return n;});}
 
   const NAV=[
     {id:'dashboard',label:'Dashboard',ico:'📊'},
