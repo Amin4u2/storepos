@@ -521,7 +521,7 @@ function AttendantDashboard({session,onLogout}){
 
   useEffect(()=>{
     async function init(){
-      if(db)try{const snap=await db.collection('srp_data').doc(u).get({source:'server'});if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);lsSet(`srp-data-${u}`,d);setSyncState('synced');setLoaded(true);return;}}catch{}
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get();setSyncState('synced');if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);lsSet(`srp-data-${u}`,d);}setLoaded(true);return;}catch(e){setSyncState('error');console.warn('Att Firebase failed:',e.code||e.message);}
       const local=lsGet(`srp-data-${u}`);
       if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);setCustomers(local.customers||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
       setLoaded(true);
@@ -532,13 +532,13 @@ function AttendantDashboard({session,onLogout}){
   useEffect(()=>{
     if(!db||!loaded)return;
     const unsub=db.collection('srp_data').doc(u).onSnapshot(
-      {includeMetadataChanges:true},
       snap=>{
-        if(snap.exists&&!snap.metadata.fromCache&&!snap.metadata.hasPendingWrites){
+        if(snap.exists&&!snap.metadata.hasPendingWrites){
           const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
           lsSet(`srp-data-${u}`,d);setSyncState('synced');
         }
-      },()=>{}
+      },
+      e=>{setSyncState('error');console.warn('Snapshot error:',e.code||e.message);}
     );
     return unsub;
   },[u,loaded]);
@@ -547,7 +547,7 @@ function AttendantDashboard({session,onLogout}){
     if(!db||!loaded)return;
     function onResume(){
       if(document.visibilityState!=='visible')return;
-      db.collection('srp_data').doc(u).get({source:'server'}).then(snap=>{
+      db.collection('srp_data').doc(u).get().then(snap=>{
         if(!snap.exists)return;
         const d=snap.data();
         setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
@@ -564,7 +564,7 @@ function AttendantDashboard({session,onLogout}){
 
   const todaySales=sales.filter(s=>s.storeId===session.storeId&&s.date===today()&&s.attendantId===session.attendantId);
   const todayTotal=todaySales.reduce((t,s)=>t+s.total,0);
-  const sc={saving:'var(--amber)',synced:'var(--green)',error:'var(--red)'}[syncState]||'var(--red)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',connecting:'var(--text3)',error:'var(--red)'}[syncState]||'var(--text3)';
 
   if(!loaded)return<div className="loading"><div className="spinner"/></div>;
 
@@ -876,7 +876,7 @@ Please verify and activate.`;
 function MobileNav({NAV,view,setView,onLogout,session,syncState}){
   const [open,setOpen]=useState(false);
   const main=NAV.slice(0,4),more=NAV.slice(4);
-  const sc={saving:'var(--amber)',synced:'var(--green)',error:'var(--red)'}[syncState]||'var(--red)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',connecting:'var(--text3)',error:'var(--red)'}[syncState]||'var(--text3)';
   function go(id){setView(id);setOpen(false);}
   return(
     <>
@@ -2612,7 +2612,7 @@ function Dashboard({session,onLogout}){
   const [sales,setSales]=useState([]);
   const [customers,setCustomers]=useState([]);
   const [activeStore,setActiveStore]=useState(null);
-  const [syncState,setSyncState]=useState('saved');
+  const [syncState,setSyncState]=useState('connecting');
   const [loaded,setLoaded]=useState(false);
   const [storeModal,setStoreModal]=useState(false);
   const [shareMenu,setShareMenu]=useState(null);
@@ -2647,7 +2647,11 @@ function Dashboard({session,onLogout}){
   useEffect(()=>{
     async function init(){
       if(db)try{
-        const snap=await db.collection('srp_data').doc(u).get({source:'server'});
+        // No {source:'server'} — it fails silently on slow mobile connections.
+        // Default .get() already fetches from server when online.
+        const snap=await db.collection('srp_data').doc(u).get();
+        // Firebase responded — we have a live connection regardless of whether doc exists
+        setSyncState('synced');
         if(snap.exists){
           const d=snap.data();
           const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
@@ -2655,9 +2659,13 @@ function Dashboard({session,onLogout}){
           setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
           if(st.length>0)setActiveStore(st[0].id);
           lsSet(`srp-data-${u}`,d);
-          setLoaded(true);return;
         }
-      }catch(e){console.warn('Firebase load failed, trying localStorage:',e);}
+        setLoaded(true);return;
+      }catch(e){
+        console.warn('Firebase unreachable:',e.code||e.message);
+        setSyncState('error');
+      }
+      // Offline fallback — load from localStorage
       const local=lsGet(`srp-data-${u}`);
       if(local){
         const st=local.stores||[];const pr=local.products||[];const sa=local.sales||[];const cu=local.customers||[];
@@ -2673,9 +2681,11 @@ function Dashboard({session,onLogout}){
   useEffect(()=>{
     if(!db||!loaded)return;
     const unsub=db.collection('srp_data').doc(u).onSnapshot(
-      {includeMetadataChanges:true},
       snap=>{
-        if(snap.exists&&!snap.metadata.fromCache&&!snap.metadata.hasPendingWrites){
+        // Skip only our OWN writes that haven't been confirmed yet.
+        // Do NOT check fromCache — the first snapshot is always fromCache=true
+        // and blocking it means live updates from other devices never apply.
+        if(snap.exists&&!snap.metadata.hasPendingWrites){
           const d=snap.data();
           const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
           stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
@@ -2683,7 +2693,8 @@ function Dashboard({session,onLogout}){
           lsSet(`srp-data-${u}`,d);
           setSyncState('synced');
         }
-      },()=>{}
+      },
+      e=>{ setSyncState('error'); console.warn('Snapshot error:',e.code||e.message); }
     );
     return unsub;
   },[u,loaded]);
@@ -2692,7 +2703,7 @@ function Dashboard({session,onLogout}){
     if(!db||!loaded)return;
     function onResume(){
       if(document.visibilityState!=='visible')return;
-      db.collection('srp_data').doc(u).get({source:'server'}).then(snap=>{
+      db.collection('srp_data').doc(u).get().then(snap=>{
         if(!snap.exists)return;
         const d=snap.data();
         const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
@@ -2728,7 +2739,7 @@ function Dashboard({session,onLogout}){
     ...(session.isDev?[{id:'admin',label:'Admin',ico:'⚙️'}]:[]),
   ];
 
-  const sc={saving:'var(--amber)',synced:'var(--green)',error:'var(--red)'}[syncState]||'var(--red)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',connecting:'var(--text3)',error:'var(--red)'}[syncState]||'var(--text3)';
 
   function handleAddStore(){setStoreModal(true);setView('stores');}
 
@@ -2772,7 +2783,7 @@ function Dashboard({session,onLogout}){
         <div style={{marginTop:'auto',padding:'12px 8px',borderTop:'1px solid var(--border)'}}>
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',marginBottom:4}}>
             <div style={{width:7,height:7,borderRadius:'50%',background:sc}}/>
-            <span style={{fontSize:11,color:sc}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced ✓':'Not synced'}</span>
+            <span style={{fontSize:11,color:sc}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced ✓':syncState==='connecting'?'Connecting…':'Not synced'}</span>
             <span style={{marginLeft:'auto',fontSize:10,color:'var(--text3)'}}>{getSym(session.currency)}</span>
           </div>
           <button className="sb-item" style={{color:'var(--red)'}} onClick={onLogout}>
