@@ -494,12 +494,33 @@ function AttendantDashboard({session,onLogout}){
   const [products,setProducts]=useState([]);
   const [sales,setSales]=useState([]);
   const [stores,setStores]=useState([]);
+  const [customers,setCustomers]=useState([]); // FIX: was missing — caused crash when loading data
+  const [activeStore,setActiveStore]=useState(null); // FIX: was missing — caused crash when loading data
   const [loaded,setLoaded]=useState(false);
   const [syncState,setSyncState]=useState('saved');
   const [view,setView]=useState('sell');
   const saveTimer=useRef(null);
   const sym=getSym(session.currency);
   const u=session.username;
+
+  // FIX: Proper save function for attendant — fire-and-forget Firebase, no hanging
+  const prAttRef=useRef([]);
+  const saAttRef=useRef([]);
+  useEffect(()=>{prAttRef.current=products;},[products]);
+  useEffect(()=>{saAttRef.current=sales;},[sales]);
+  function attDoSave(overrideProds,overrideSales){
+    clearTimeout(saveTimer.current);
+    setSyncState('saving');
+    saveTimer.current=setTimeout(()=>{
+      const data={stores,products:overrideProds||prAttRef.current,sales:overrideSales||saAttRef.current,customers,updatedAt:Date.now()};
+      lsSet(`srp-data-${u}`,data);
+      setSyncState('saved');
+      if(db){db.collection('srp_data').doc(u).set(data).catch(e=>console.warn('Att sync error:',e));}
+    },800);
+  }
+  // FIX: Replaces undefined setSa and setP references used in VSell below
+  function attSetSales(fn){setSales(ss=>{const prev=typeof fn==='function'?fn(ss):fn;const tagged=prev.map(s=>!s.attendantId?{...s,attendantId:session.attendantId,attendantName:session.attendantName}:s);attDoSave(undefined,tagged);return tagged;});}
+  function attSetProducts(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;attDoSave(n,undefined);return n;});}
 
   useEffect(()=>{
     async function init(){
@@ -519,6 +540,26 @@ function AttendantDashboard({session,onLogout}){
       }
     },()=>{});
     return unsub;
+  },[u,loaded]);
+
+  // FIX: Force re-fetch when mobile screen wakes up / app resumes
+  useEffect(()=>{
+    if(!db||!loaded)return;
+    function onVisible(){
+      if(document.visibilityState==='visible'){
+        db.collection('srp_data').doc(u).get().then(snap=>{
+          if(!snap.exists)return;
+          const d=snap.data();
+          const localTs=lsGet(`srp-data-${u}`)?.updatedAt||0;
+          if((d.updatedAt||0)>localTs){
+            setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
+            lsSet(`srp-data-${u}`,d);
+          }
+        }).catch(()=>{});
+      }
+    }
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>document.removeEventListener('visibilitychange',onVisible);
   },[u,loaded]);
 
 
@@ -561,8 +602,8 @@ function AttendantDashboard({session,onLogout}){
       <div style={{flex:1,overflowY:'auto',padding:12,paddingBottom:20}}>
         {view==='sell'&&(
           <VSell
-            products={products} setSales={fn=>{setSa(ss=>{const prev=typeof fn==='function'?fn(ss):fn;return prev.map(s=>!s.attendantId?{...s,attendantId:session.attendantId,attendantName:session.attendantName}:s);})}}
-            setProducts={setP} session={session} activeStore={session.storeId} stores={stores}
+            products={products} setSales={attSetSales}
+            setProducts={attSetProducts} session={session} activeStore={session.storeId} stores={stores}
           />
         )}
         {view==='mytotals'&&(
@@ -2593,14 +2634,19 @@ function Dashboard({session,onLogout}){
   useEffect(()=>{cuRef.current=customers;},[customers]);
 
   // doSave always reads fresh values from refs — never stale
+  // FIX: Save to localStorage immediately (no hanging), then push to Firebase in background.
+  // Awaiting Firebase on mobile causes indefinite "Saving…" on slow/unstable connections.
   function doSave(){
     clearTimeout(saveTimer.current);
     setSyncState('saving');
-    saveTimer.current=setTimeout(async()=>{
+    saveTimer.current=setTimeout(()=>{
       const data={stores:stRef.current,products:prRef.current,sales:saRef.current,customers:cuRef.current,updatedAt:Date.now()};
       lsSet(`srp-data-${u}`,data);
-      if(db)try{await db.collection('srp_data').doc(u).set(data);setSyncState('saved');}catch(e){setSyncState('error');console.warn('Save error:',e);}
-      else setSyncState('saved');
+      setSyncState('saved'); // Mark saved immediately after localStorage write
+      if(db){
+        // Fire-and-forget — Firebase syncs in background; no await so it never hangs
+        db.collection('srp_data').doc(u).set(data).catch(e=>console.warn('Firebase sync error:',e));
+      }
     },800);
   }
 
@@ -2640,6 +2686,29 @@ function Dashboard({session,onLogout}){
       }
     },()=>{});
     return unsub;
+  },[u,loaded]);
+
+  // FIX: Re-fetch from Firestore when phone screen wakes up / app comes back to foreground.
+  // This ensures changes made on computer always appear on mobile immediately on resume.
+  useEffect(()=>{
+    if(!db||!loaded)return;
+    function onVisibilityChange(){
+      if(document.visibilityState==='visible'){
+        db.collection('srp_data').doc(u).get().then(snap=>{
+          if(!snap.exists)return;
+          const d=snap.data();
+          const localTs=lsGet(`srp-data-${u}`)?.updatedAt||0;
+          if((d.updatedAt||0)>localTs){
+            const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
+            stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+            setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+            lsSet(`srp-data-${u}`,d);
+          }
+        }).catch(()=>{});
+      }
+    }
+    document.addEventListener('visibilitychange',onVisibilityChange);
+    return()=>document.removeEventListener('visibilitychange',onVisibilityChange);
   },[u,loaded]);
 
   // Setters: update ref immediately then trigger save — no stale data ever
