@@ -297,6 +297,7 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json,'+e
 <script>
 // Firebase config injected by GitHub Actions at deploy time
 let db=null;
+let dbReady=false; // TRUE only when a real Firestore write/read succeeds — never lies
 try{
   firebase.initializeApp({
     apiKey:"__FIREBASE_API_KEY__",
@@ -307,8 +308,10 @@ try{
     appId:"__FIREBASE_APP_ID__"
   });
   db=firebase.firestore();
-  // SYNC FIX: enablePersistence REMOVED — it served stale cached data on mobile instead of live Firestore data.
-  console.log('Firebase connected ✓');
+  // NOTE: enablePersistence is intentionally removed.
+  // It causes mobile devices to serve stale IndexedDB cache instead of
+  // live server data, which breaks cross-device sync entirely.
+  console.log('Firebase SDK initialised — waiting for first successful read/write to confirm sync…');
 }catch(e){console.warn('Firebase init error:',e);}
 </script>
 
@@ -493,10 +496,10 @@ function AttendantDashboard({session,onLogout}){
   const [products,setProducts]=useState([]);
   const [sales,setSales]=useState([]);
   const [stores,setStores]=useState([]);
-  const [customers,setCustomers]=useState([]); // FIX: was missing — crash on load
-  const [activeStore,setActiveStore]=useState(null); // FIX: was missing — crash on load
+  const [customers,setCustomers]=useState([]);
+  const [activeStore,setActiveStore]=useState(null);
   const [loaded,setLoaded]=useState(false);
-  const [syncState,setSyncState]=useState('saved');
+  const [syncState,setSyncState]=useState('local');
   const [view,setView]=useState('sell');
   const saveTimer=useRef(null);
   const prAttRef=useRef([]);
@@ -505,24 +508,27 @@ function AttendantDashboard({session,onLogout}){
   const u=session.username;
   useEffect(()=>{prAttRef.current=products;},[products]);
   useEffect(()=>{saAttRef.current=sales;},[sales]);
-  // FIX: Proper save for attendant — fire-and-forget Firebase, localStorage-first
   function attDoSave(overrideProds,overrideSales){
     clearTimeout(saveTimer.current);
     setSyncState('saving');
     saveTimer.current=setTimeout(()=>{
       const data={stores,products:overrideProds||prAttRef.current,sales:overrideSales||saAttRef.current,customers,updatedAt:Date.now()};
-      lsSet(`srp-data-\${u}`,data);
-      setSyncState('saved');
-      if(db) db.collection('srp_data').doc(u).set(data).catch(e=>console.warn('Att sync error:',e));
+      lsSet(`srp-data-${u}`,data);
+      if(db){
+        db.collection('srp_data').doc(u).set(data)
+          .then(()=>{dbReady=true;setSyncState('synced');})
+          .catch(e=>{setSyncState('local');console.warn('Att Firebase write failed:',e);});
+      } else {
+        setSyncState('local');
+      }
     },800);
   }
-  // FIX: Replaces undefined setSa/setP references
   function attSetSales(fn){setSales(ss=>{const prev=typeof fn==='function'?fn(ss):fn;const tagged=prev.map(s=>!s.attendantId?{...s,attendantId:session.attendantId,attendantName:session.attendantName}:s);attDoSave(undefined,tagged);return tagged;});}
   function attSetProducts(fn){setProducts(pp=>{const n=typeof fn==='function'?fn(pp):fn;attDoSave(n,undefined);return n;});}
 
   useEffect(()=>{
     async function init(){
-      if(db)try{const snap=await db.collection('srp_data').doc(u).get();if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);setLoaded(true);return;}}catch{}
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get({source:'server'});if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);dbReady=true;lsSet(`srp-data-${u}`,d);setLoaded(true);return;}}catch{}
       const local=lsGet(`srp-data-${u}`);
       if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);setCustomers(local.customers||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
       setLoaded(true);
@@ -532,35 +538,40 @@ function AttendantDashboard({session,onLogout}){
 
   useEffect(()=>{
     if(!db||!loaded)return;
-    const unsub=db.collection('srp_data').doc(u).onSnapshot({includeMetadataChanges:true},snap=>{
-      if(snap.exists&&!snap.metadata.fromCache){
-        const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
-      }
-    },()=>{});
+    const unsub=db.collection('srp_data').doc(u).onSnapshot(
+      {includeMetadataChanges:true},
+      snap=>{
+        if(snap.exists&&!snap.metadata.fromCache&&!snap.metadata.hasPendingWrites){
+          const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
+          dbReady=true;setSyncState('synced');
+        }
+      },()=>{}
+    );
     return unsub;
   },[u,loaded]);
 
-  // SYNC FIX: Re-fetch when mobile screen wakes up / app resumes
   useEffect(()=>{
     if(!db||!loaded)return;
-    function onFocus(){
+    function onResume(){
+      if(document.visibilityState!=='visible')return;
       db.collection('srp_data').doc(u).get({source:'server'}).then(snap=>{
         if(!snap.exists)return;
         const d=snap.data();
         setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
-      }).catch(()=>{});
+        dbReady=true;setSyncState('synced');
+      }).catch(()=>setSyncState('local'));
     }
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')onFocus();});
-    window.addEventListener('focus',onFocus);
+    document.addEventListener('visibilitychange',onResume);
+    window.addEventListener('focus',onResume);
     return()=>{
-      document.removeEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')onFocus();});
-      window.removeEventListener('focus',onFocus);
+      document.removeEventListener('visibilitychange',onResume);
+      window.removeEventListener('focus',onResume);
     };
   },[u,loaded]);
 
   const todaySales=sales.filter(s=>s.storeId===session.storeId&&s.date===today()&&s.attendantId===session.attendantId);
   const todayTotal=todaySales.reduce((t,s)=>t+s.total,0);
-  const sc={saving:'var(--amber)',saved:'var(--green)'}[syncState]||'var(--text3)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',local:'var(--amber)',error:'var(--red)'}[syncState]||'var(--text3)';
 
   if(!loaded)return<div className="loading"><div className="spinner"/></div>;
 
@@ -872,7 +883,7 @@ Please verify and activate.`;
 function MobileNav({NAV,view,setView,onLogout,session,syncState}){
   const [open,setOpen]=useState(false);
   const main=NAV.slice(0,4),more=NAV.slice(4);
-  const sc={saving:'var(--amber)',saved:'var(--green)',error:'var(--red)'}[syncState]||'var(--text3)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',local:'var(--amber)',error:'var(--red)'}[syncState]||'var(--text3)';
   function go(id){setView(id);setOpen(false);}
   return(
     <>
@@ -881,7 +892,7 @@ function MobileNav({NAV,view,setView,onLogout,session,syncState}){
           <div style={{position:'absolute',bottom:'calc(var(--nh) + env(safe-area-inset-bottom,0px))',left:0,right:0,background:'var(--bg2)',borderTop:'1px solid var(--border)',borderRadius:'16px 16px 0 0',padding:'16px 12px 10px'}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:14,paddingBottom:12,borderBottom:'1px solid var(--border)'}}>
               <div style={{width:7,height:7,borderRadius:'50%',background:sc,flexShrink:0}}/>
-              <span style={{fontSize:11,color:'var(--text3)',flex:1}}>{syncState==='saving'?'Saving…':'All saved'}</span>
+              <span style={{fontSize:11,color:'var(--text3)',flex:1}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced to cloud ✓':syncState==='local'?'⚠️ Local only — no cross-device sync':'Saved'}</span>
               <span style={{fontSize:11,color:'var(--text3)'}}>@{session.username}</span>
             </div>
             {more.length>0&&<div style={{display:'grid',gridTemplateColumns:`repeat(${more.length},1fr)`,gap:8,marginBottom:12}}>
@@ -2626,33 +2637,46 @@ function Dashboard({session,onLogout}){
   useEffect(()=>{saRef.current=sales;},[sales]);
   useEffect(()=>{cuRef.current=customers;},[customers]);
 
-  // doSave always reads fresh values from refs — never stale
+  // doSave: ALWAYS saves to localStorage first (instant, never hangs).
+  // Then pushes to Firebase in background. syncState is HONEST:
+  //   'saving'  → in progress
+  //   'synced'  → confirmed written to Firebase (cross-device sync works)
+  //   'local'   → only in localStorage (no cross-device sync — Firebase issue)
   function doSave(){
     clearTimeout(saveTimer.current);
     setSyncState('saving');
     saveTimer.current=setTimeout(()=>{
       const data={stores:stRef.current,products:prRef.current,sales:saRef.current,customers:cuRef.current,updatedAt:Date.now()};
-      // SYNC FIX: Save to localStorage FIRST so the app never hangs.
-      // Then push to Firebase in the background (no await) — fire and forget.
-      lsSet(`srp-data-\${u}`,data);
-      setSyncState('saved');
-      if(db) db.collection('srp_data').doc(u).set(data).catch(e=>console.warn('Firebase push error:',e));
+      lsSet(`srp-data-${u}`,data); // Always save locally first — instant, no hanging
+      if(db){
+        db.collection('srp_data').doc(u).set(data)
+          .then(()=>{dbReady=true;setSyncState('synced');})
+          .catch(e=>{setSyncState('local');console.warn('Firebase write failed — running on local storage only:',e);});
+      } else {
+        setSyncState('local'); // db is null — Firebase never connected
+      }
     },800);
   }
 
   useEffect(()=>{
     async function init(){
       if(db)try{
-        const snap=await db.collection('srp_data').doc(u).get();
+        // source:'server' forces a REAL network fetch — bypasses any local cache.
+        // This is critical: without it, mobile loads stale localStorage data
+        // and never sees changes made on another device.
+        const snap=await db.collection('srp_data').doc(u).get({source:'server'});
         if(snap.exists){
           const d=snap.data();
           const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
           stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
           setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
           if(st.length>0)setActiveStore(st[0].id);
+          lsSet(`srp-data-${u}`,d); // Update local cache with fresh server data
+          dbReady=true;
           setLoaded(true);return;
         }
-      }catch(e){console.warn('Init load error:',e);}
+      }catch(e){console.warn('Init server load failed, falling back to localStorage:',e);}
+      // Fallback: localStorage (offline or Firebase unreachable)
       const local=lsGet(`srp-data-${u}`);
       if(local){
         const st=local.stores||[];const pr=local.products||[];const sa=local.sales||[];const cu=local.customers||[];
@@ -2667,41 +2691,54 @@ function Dashboard({session,onLogout}){
 
   useEffect(()=>{
     if(!db||!loaded)return;
-    // SYNC FIX: Use fromCache=false (server-confirmed data only).
-    // hasPendingWrites was wrong — it was true for both cached AND server data.
-    const unsub=db.collection('srp_data').doc(u).onSnapshot({includeMetadataChanges:true},snap=>{
-      if(snap.exists&&!snap.metadata.fromCache){
-        const d=snap.data();
-        const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
-        stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
-        setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
-      }
-    },()=>{});
+    // includeMetadataChanges=true means we get notified for EVERY update including server confirmations.
+    // fromCache=false means this is CONFIRMED server data — not a cached/local copy.
+    // This is the only reliable way to know data came from Firebase and not the device.
+    const unsub=db.collection('srp_data').doc(u).onSnapshot(
+      {includeMetadataChanges:true},
+      snap=>{
+        if(snap.exists && !snap.metadata.fromCache && !snap.metadata.hasPendingWrites){
+          const d=snap.data();
+          const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
+          stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+          setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+          lsSet(`srp-data-${u}`,d);
+          dbReady=true;
+          setSyncState('synced');
+        }
+      },
+      e=>console.warn('Snapshot error:',e)
+    );
     return unsub;
   },[u,loaded]);
 
-  // SYNC FIX: Re-fetch from server when user returns to the app (screen wake / tab switch).
-  // Mobile browsers kill background WebSocket connections, so onSnapshot stops working when app is minimised.
-  // This guarantees fresh data every time the user opens the app again.
+  // When phone screen wakes up or user returns to the app tab, force a
+  // fresh server fetch — mobile browsers kill the WebSocket while the app
+  // is in the background so onSnapshot stops receiving updates.
   useEffect(()=>{
     if(!db||!loaded)return;
-    function onFocus(){
-      db.collection('srp_data').doc(u).get({source:'server'}).then(snap=>{
-        if(!snap.exists)return;
-        const d=snap.data();
-        const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
-        stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
-        setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
-        lsSet(`srp-data-\${u}`,{...d,updatedAt:d.updatedAt||Date.now()});
-      }).catch(()=>{});
+    function onResume(){
+      if(document.visibilityState!=='visible')return;
+      db.collection('srp_data').doc(u).get({source:'server'})
+        .then(snap=>{
+          if(!snap.exists)return;
+          const d=snap.data();
+          const localTs=lsGet(`srp-data-${u}`)?.updatedAt||0;
+          if((d.updatedAt||0)>localTs){
+            const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
+            stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+            setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+            lsSet(`srp-data-${u}`,d);
+          }
+          dbReady=true;setSyncState('synced');
+        })
+        .catch(()=>{setSyncState('local');});
     }
-    // visibilitychange fires when user returns from another app or wakes the screen
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')onFocus();});
-    // focus fires when browser tab regains focus on desktop
-    window.addEventListener('focus',onFocus);
+    document.addEventListener('visibilitychange',onResume);
+    window.addEventListener('focus',onResume);
     return()=>{
-      document.removeEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')onFocus();});
-      window.removeEventListener('focus',onFocus);
+      document.removeEventListener('visibilitychange',onResume);
+      window.removeEventListener('focus',onResume);
     };
   },[u,loaded]);
 
@@ -2723,7 +2760,7 @@ function Dashboard({session,onLogout}){
     ...(session.isDev?[{id:'admin',label:'Admin',ico:'⚙️'}]:[]),
   ];
 
-  const sc={saving:'var(--amber)',saved:'var(--green)',error:'var(--red)'}[syncState]||'var(--text3)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',local:'var(--amber)',error:'var(--red)'}[syncState]||'var(--text3)';
 
   function handleAddStore(){setStoreModal(true);setView('stores');}
 
@@ -2767,7 +2804,7 @@ function Dashboard({session,onLogout}){
         <div style={{marginTop:'auto',padding:'12px 8px',borderTop:'1px solid var(--border)'}}>
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',marginBottom:4}}>
             <div style={{width:7,height:7,borderRadius:'50%',background:sc}}/>
-            <span style={{fontSize:11,color:'var(--text3)'}}>{syncState==='saving'?'Saving…':'Saved'}</span>
+            <span style={{fontSize:11,color:'var(--text3)'}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced ✓':syncState==='local'?'Local only — check Firebase':'Saved'}</span>
             <span style={{marginLeft:'auto',fontSize:10,color:'var(--text3)'}}>{getSym(session.currency)}</span>
           </div>
           <button className="sb-item" style={{color:'var(--red)'}} onClick={onLogout}>
