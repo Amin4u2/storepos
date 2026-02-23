@@ -296,7 +296,6 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json,'+e
 
 <script>
 let db=null;
-let dbLive=false; // true only after a real Firestore round-trip succeeds
 try{
   firebase.initializeApp({
     apiKey:"AIzaSyB_FSyoxjDSGsgx2NiqoyMxBpDK5eR-dgs",
@@ -307,10 +306,8 @@ try{
     appId:"1:758065213150:web:556aa1bff31758d39a1c4f"
   });
   db=firebase.firestore();
-  // enablePersistence intentionally removed — it serves stale local cache
-  // on mobile instead of live server data, breaking cross-device sync.
-  console.log('Firebase SDK ready — credentials loaded ✓');
-}catch(e){console.warn('Firebase init error:',e);}
+  console.log('Firebase ready ✓');
+}catch(e){console.warn('Firebase error:',e);}
 </script>
 
 <script type="text/babel">
@@ -497,7 +494,7 @@ function AttendantDashboard({session,onLogout}){
   const [customers,setCustomers]=useState([]);
   const [activeStore,setActiveStore]=useState(null);
   const [loaded,setLoaded]=useState(false);
-  const [syncState,setSyncState]=useState('local');
+  const [syncState,setSyncState]=useState('error');
   const [view,setView]=useState('sell');
   const saveTimer=useRef(null);
   const prAttRef=useRef([]);
@@ -514,9 +511,9 @@ function AttendantDashboard({session,onLogout}){
       lsSet(`srp-data-${u}`,data);
       if(db){
         db.collection('srp_data').doc(u).set(data)
-          .then(()=>{dbLive=true;setSyncState('synced');})
-          .catch(e=>{setSyncState('local');console.warn('Att Firebase write error:',e);});
-      } else { setSyncState('local'); }
+          .then(()=>setSyncState('synced'))
+          .catch(e=>{setSyncState('error');console.warn('Att Firebase error:',e);});
+      } else { setSyncState('error'); }
     },800);
   }
   function attSetSales(fn){setSales(ss=>{const prev=typeof fn==='function'?fn(ss):fn;const tagged=prev.map(s=>!s.attendantId?{...s,attendantId:session.attendantId,attendantName:session.attendantName}:s);attDoSave(undefined,tagged);return tagged;});}
@@ -524,7 +521,7 @@ function AttendantDashboard({session,onLogout}){
 
   useEffect(()=>{
     async function init(){
-      if(db)try{const snap=await db.collection('srp_data').doc(u).get({source:'server'});if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);lsSet(`srp-data-${u}`,d);dbLive=true;setLoaded(true);return;}}catch{}
+      if(db)try{const snap=await db.collection('srp_data').doc(u).get({source:'server'});if(snap.exists){const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);if(d.stores?.length>0)setActiveStore(d.stores[0].id);lsSet(`srp-data-${u}`,d);setSyncState('synced');setLoaded(true);return;}}catch{}
       const local=lsGet(`srp-data-${u}`);
       if(local){setStores(local.stores||[]);setProducts(local.products||[]);setSales(local.sales||[]);setCustomers(local.customers||[]);if(local.stores?.length>0)setActiveStore(local.stores[0].id);}
       setLoaded(true);
@@ -539,7 +536,7 @@ function AttendantDashboard({session,onLogout}){
       snap=>{
         if(snap.exists&&!snap.metadata.fromCache&&!snap.metadata.hasPendingWrites){
           const d=snap.data();setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
-          dbLive=true;setSyncState('synced');
+          lsSet(`srp-data-${u}`,d);setSyncState('synced');
         }
       },()=>{}
     );
@@ -554,8 +551,8 @@ function AttendantDashboard({session,onLogout}){
         if(!snap.exists)return;
         const d=snap.data();
         setStores(d.stores||[]);setProducts(d.products||[]);setSales(d.sales||[]);setCustomers(d.customers||[]);
-        dbLive=true;setSyncState('synced');
-      }).catch(()=>setSyncState('local'));
+        lsSet(`srp-data-${u}`,d);setSyncState('synced');
+      }).catch(()=>{});
     }
     document.addEventListener('visibilitychange',onResume);
     window.addEventListener('focus',onResume);
@@ -567,7 +564,7 @@ function AttendantDashboard({session,onLogout}){
 
   const todaySales=sales.filter(s=>s.storeId===session.storeId&&s.date===today()&&s.attendantId===session.attendantId);
   const todayTotal=todaySales.reduce((t,s)=>t+s.total,0);
-  const sc={saving:'var(--amber)',synced:'var(--green)',local:'#f97316',error:'var(--red)'}[syncState]||'var(--text3)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',error:'var(--red)'}[syncState]||'var(--red)';
 
   if(!loaded)return<div className="loading"><div className="spinner"/></div>;
 
@@ -879,7 +876,7 @@ Please verify and activate.`;
 function MobileNav({NAV,view,setView,onLogout,session,syncState}){
   const [open,setOpen]=useState(false);
   const main=NAV.slice(0,4),more=NAV.slice(4);
-  const sc={saving:'var(--amber)',synced:'var(--green)',local:'#f97316',error:'var(--red)'}[syncState]||'var(--text3)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',error:'var(--red)'}[syncState]||'var(--red)';
   function go(id){setView(id);setOpen(false);}
   return(
     <>
@@ -888,7 +885,7 @@ function MobileNav({NAV,view,setView,onLogout,session,syncState}){
           <div style={{position:'absolute',bottom:'calc(var(--nh) + env(safe-area-inset-bottom,0px))',left:0,right:0,background:'var(--bg2)',borderTop:'1px solid var(--border)',borderRadius:'16px 16px 0 0',padding:'16px 12px 10px'}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:14,paddingBottom:12,borderBottom:'1px solid var(--border)'}}>
               <div style={{width:7,height:7,borderRadius:'50%',background:sc,flexShrink:0}}/>
-              <span style={{fontSize:11,color:sc,flex:1}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced ✓':'Local only — not syncing'}</span>
+              <span style={{fontSize:11,color:sc,flex:1}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced to Firebase ✓':'Not synced — check connection'}</span>
               <span style={{fontSize:11,color:'var(--text3)'}}>@{session.username}</span>
             </div>
             {more.length>0&&<div style={{display:'grid',gridTemplateColumns:`repeat(${more.length},1fr)`,gap:8,marginBottom:12}}>
@@ -2633,10 +2630,6 @@ function Dashboard({session,onLogout}){
   useEffect(()=>{saRef.current=sales;},[sales]);
   useEffect(()=>{cuRef.current=customers;},[customers]);
 
-  // doSave: saves to localStorage instantly (never hangs), then pushes to
-  // Firebase in the background. Status dot is HONEST:
-  //   'synced' = confirmed written to Firebase (green — cross-device works)
-  //   'local'  = localStorage only — Firebase not reachable (amber)
   function doSave(){
     clearTimeout(saveTimer.current);
     setSyncState('saving');
@@ -2645,19 +2638,15 @@ function Dashboard({session,onLogout}){
       lsSet(`srp-data-${u}`,data);
       if(db){
         db.collection('srp_data').doc(u).set(data)
-          .then(()=>{ dbLive=true; setSyncState('synced'); })
-          .catch(e=>{ setSyncState('local'); console.warn('Firebase write error:',e); });
-      } else {
-        setSyncState('local');
-      }
+          .then(()=>setSyncState('synced'))
+          .catch(e=>{setSyncState('error');console.warn('Firebase write error:',e);});
+      } else { setSyncState('error'); }
     },800);
   }
 
   useEffect(()=>{
     async function init(){
       if(db)try{
-        // source:'server' bypasses ALL local cache — forces real network fetch.
-        // Without this, mobile loads its own localStorage and ignores Firebase entirely.
         const snap=await db.collection('srp_data').doc(u).get({source:'server'});
         if(snap.exists){
           const d=snap.data();
@@ -2666,10 +2655,9 @@ function Dashboard({session,onLogout}){
           setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
           if(st.length>0)setActiveStore(st[0].id);
           lsSet(`srp-data-${u}`,d);
-          dbLive=true;
           setLoaded(true);return;
         }
-      }catch(e){console.warn('Server fetch failed, using localStorage fallback:',e);}
+      }catch(e){console.warn('Firebase load failed, trying localStorage:',e);}
       const local=lsGet(`srp-data-${u}`);
       if(local){
         const st=local.stores||[];const pr=local.products||[];const sa=local.sales||[];const cu=local.customers||[];
@@ -2684,27 +2672,22 @@ function Dashboard({session,onLogout}){
 
   useEffect(()=>{
     if(!db||!loaded)return;
-    // includeMetadataChanges:true so we get notified on server confirmation.
-    // fromCache:false means this data is confirmed from Firebase server — not local.
     const unsub=db.collection('srp_data').doc(u).onSnapshot(
       {includeMetadataChanges:true},
       snap=>{
-        if(snap.exists && !snap.metadata.fromCache && !snap.metadata.hasPendingWrites){
+        if(snap.exists&&!snap.metadata.fromCache&&!snap.metadata.hasPendingWrites){
           const d=snap.data();
           const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
           stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
           setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
           lsSet(`srp-data-${u}`,d);
-          dbLive=true; setSyncState('synced');
+          setSyncState('synced');
         }
-      },
-      ()=>{}
+      },()=>{}
     );
     return unsub;
   },[u,loaded]);
 
-  // Mobile browsers kill the WebSocket when the app is in the background.
-  // This re-fetches fresh data from the server every time the screen wakes up.
   useEffect(()=>{
     if(!db||!loaded)return;
     function onResume(){
@@ -2712,15 +2695,12 @@ function Dashboard({session,onLogout}){
       db.collection('srp_data').doc(u).get({source:'server'}).then(snap=>{
         if(!snap.exists)return;
         const d=snap.data();
-        const localTs=lsGet(`srp-data-${u}`)?.updatedAt||0;
-        if((d.updatedAt||0)>=localTs){
-          const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
-          stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
-          setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
-          lsSet(`srp-data-${u}`,d);
-        }
-        dbLive=true; setSyncState('synced');
-      }).catch(()=>{ setSyncState('local'); });
+        const st=d.stores||[];const pr=d.products||[];const sa=d.sales||[];const cu=d.customers||[];
+        stRef.current=st;prRef.current=pr;saRef.current=sa;cuRef.current=cu;
+        setStores(st);setProducts(pr);setSales(sa);setCustomers(cu);
+        lsSet(`srp-data-${u}`,d);
+        setSyncState('synced');
+      }).catch(()=>{});
     }
     document.addEventListener('visibilitychange',onResume);
     window.addEventListener('focus',onResume);
@@ -2748,7 +2728,7 @@ function Dashboard({session,onLogout}){
     ...(session.isDev?[{id:'admin',label:'Admin',ico:'⚙️'}]:[]),
   ];
 
-  const sc={saving:'var(--amber)',synced:'var(--green)',local:'#f97316',error:'var(--red)'}[syncState]||'var(--text3)';
+  const sc={saving:'var(--amber)',synced:'var(--green)',error:'var(--red)'}[syncState]||'var(--red)';
 
   function handleAddStore(){setStoreModal(true);setView('stores');}
 
@@ -2792,7 +2772,7 @@ function Dashboard({session,onLogout}){
         <div style={{marginTop:'auto',padding:'12px 8px',borderTop:'1px solid var(--border)'}}>
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',marginBottom:4}}>
             <div style={{width:7,height:7,borderRadius:'50%',background:sc}}/>
-            <span style={{fontSize:11,color:sc}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced ✓':'Local only'}</span>
+            <span style={{fontSize:11,color:sc}}>{syncState==='saving'?'Saving…':syncState==='synced'?'Synced ✓':'Not synced'}</span>
             <span style={{marginLeft:'auto',fontSize:10,color:'var(--text3)'}}>{getSym(session.currency)}</span>
           </div>
           <button className="sb-item" style={{color:'var(--red)'}} onClick={onLogout}>
